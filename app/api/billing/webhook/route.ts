@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
-import { getBillingPlanByPriceId, getStripeClient, unixToIso } from "@/lib/billing";
+import type Stripe from "stripe";
+import { getStripeClient } from "@/lib/billing";
+import { buildBillingProfileRow, buildBillingSubscriptionRow } from "@/lib/billingWebhook";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-type SubscriptionWithPeriods = Stripe.Subscription & {
-  current_period_end?: number;
-  current_period_start?: number;
-};
-
-function objectId(value: string | Stripe.Customer | Stripe.DeletedCustomer | null) {
-  return typeof value === "string" ? value : value?.id ?? null;
-}
 
 async function upsertSubscription(subscription: Stripe.Subscription, session?: Stripe.Checkout.Session) {
   const supabase = getSupabaseAdminClient();
@@ -22,48 +14,24 @@ async function upsertSubscription(subscription: Stripe.Subscription, session?: S
     return;
   }
 
-  const periodSubscription = subscription as SubscriptionWithPeriods;
-  const item = subscription.items.data[0];
-  const priceId = item?.price.id ?? null;
-  const planId = subscription.metadata.planId || session?.metadata?.planId || getBillingPlanByPriceId(priceId)?.id || null;
-  const userId = subscription.metadata.userId || session?.metadata?.userId || null;
-  const customerId = objectId(subscription.customer);
+  const profileRow = buildBillingProfileRow(subscription, session);
 
-  if (!customerId) {
-    return;
-  }
-
-  if (userId) {
+  if (profileRow) {
     await supabase
       .from("roomboard_profiles")
-      .upsert(
-        {
-          stripe_customer_id: customerId,
-          updated_at: new Date().toISOString(),
-          user_id: userId,
-        },
-        { onConflict: "user_id" },
-      )
+      .upsert(profileRow, { onConflict: "user_id" })
       .throwOnError();
+  }
+
+  const subscriptionRow = buildBillingSubscriptionRow(subscription, session);
+
+  if (!subscriptionRow) {
+    return;
   }
 
   await supabase
     .from("billing_subscriptions")
-    .upsert(
-      {
-        cancel_at_period_end: subscription.cancel_at_period_end,
-        current_period_end: unixToIso(periodSubscription.current_period_end),
-        current_period_start: unixToIso(periodSubscription.current_period_start),
-        plan_id: planId,
-        status: subscription.status,
-        stripe_customer_id: customerId,
-        stripe_price_id: priceId,
-        stripe_subscription_id: subscription.id,
-        updated_at: new Date().toISOString(),
-        user_id: userId || null,
-      },
-      { onConflict: "stripe_subscription_id" },
-    )
+    .upsert(subscriptionRow, { onConflict: "stripe_subscription_id" })
     .throwOnError();
 }
 
