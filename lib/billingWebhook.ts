@@ -1,11 +1,6 @@
 import type Stripe from "stripe";
 import { getBillingPlanByPriceId, unixToIso } from "./billing.ts";
 
-type SubscriptionWithPeriods = Stripe.Subscription & {
-  current_period_end?: number;
-  current_period_start?: number;
-};
-
 export type BillingSubscriptionRow = {
   cancel_at_period_end: boolean;
   current_period_end: string | null;
@@ -70,12 +65,14 @@ export function buildBillingSubscriptionRow(
     return null;
   }
 
-  const periodSubscription = subscription as SubscriptionWithPeriods;
+  // Since Stripe API version 2025-03-31 the billing period is an item-level
+  // field, so read it from the same item that supplies stripe_price_id.
+  const subscriptionItem = subscription.items?.data?.[0];
 
   return {
     cancel_at_period_end: subscription.cancel_at_period_end,
-    current_period_end: unixToIso(periodSubscription.current_period_end),
-    current_period_start: unixToIso(periodSubscription.current_period_start),
+    current_period_end: unixToIso(subscriptionItem?.current_period_end),
+    current_period_start: unixToIso(subscriptionItem?.current_period_start),
     plan_id: resolveBillingPlanId(subscription, session),
     status: subscription.status,
     stripe_customer_id: customerId,

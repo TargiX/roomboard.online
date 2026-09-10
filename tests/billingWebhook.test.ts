@@ -18,12 +18,12 @@ const {
 function buildSubscription(overrides: Record<string, unknown> = {}): Stripe.Subscription {
   return {
     cancel_at_period_end: false,
-    current_period_end: 1_900_000_000,
-    current_period_start: 1_868_544_000,
     customer: "cus_test_123",
     id: "sub_test_123",
     lifecycle: 1,
-    items: { data: [{ price: { id: PRICE_ID } }] },
+    // Since Stripe API version 2025-03-31 the billing period lives on the
+    // subscription item, not on the subscription itself.
+    items: { data: [{ price: { id: PRICE_ID }, current_period_end: 1_900_000_000, current_period_start: 1_868_544_000 }] },
     metadata: {},
     status: "active",
     ...overrides,
@@ -104,11 +104,10 @@ describe("buildBillingSubscriptionRow", () => {
     assert.equal(row.user_id, "user_42");
   });
 
-  it("keeps period fields null when Stripe omits them", () => {
+  it("keeps period fields null when the subscription item omits them", () => {
     const bare = {
       ...buildSubscription(),
-      current_period_end: undefined,
-      current_period_start: undefined,
+      items: { data: [{ price: { id: PRICE_ID } }] } as Stripe.ApiList<Stripe.SubscriptionItem>,
     } as Stripe.Subscription;
 
     const row = buildBillingSubscriptionRow(bare);
