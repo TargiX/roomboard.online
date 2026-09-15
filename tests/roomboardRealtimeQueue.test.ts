@@ -3,10 +3,12 @@ import { describe, it } from "node:test";
 import { createPendingRoomEventQueue, maxPendingRoomEvents } from "../lib/roomboardRealtimeQueue.ts";
 import type { RoomboardBoardEventInput } from "../lib/roomboardRealtime.ts";
 
+/** Build a minimal board event stub for queue tests. */
 function boardEvent(itemId: string): RoomboardBoardEventInput {
   return { type: "item:created", item: { id: itemId } } as unknown as RoomboardBoardEventInput;
 }
 
+/** Read the item id of a board event stub. */
 function eventId(event: RoomboardBoardEventInput): string {
   return (event as { item: { id: string } }).item.id;
 }

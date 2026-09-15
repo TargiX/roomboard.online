@@ -76,6 +76,11 @@ export type RoomboardRealtimeSession = {
   updatePresence: (presence: Pick<PresenceSnapshot, "focus" | "x" | "y">) => void;
 };
 
+/**
+ * Create a realtime session for one room: it joins the room channel, tracks
+ * cursor presence, buffers pre-join board events, and exposes the status and
+ * send/close lifecycle used by the room UI.
+ */
 export function createRoomboardRealtimeSession({
   accessToken,
   endpoint,
