@@ -9,12 +9,17 @@ import type { RoomboardBoardEventInput } from "./roomboardRealtime";
 export const maxPendingRoomEvents = 50;
 
 export type PendingRoomEventQueue = {
+  /** Drop all buffered events. */
   clear: () => void;
+  /** Flush buffered events in FIFO order through `send`. */
   drain: (send: (event: RoomboardBoardEventInput) => void) => void;
+  /** Buffer one event unless the queue is at capacity. */
   enqueue: (event: RoomboardBoardEventInput) => void;
+  /** Number of buffered events. */
   size: () => number;
 };
 
+/** Create a bounded FIFO queue for pre-join room events. */
 export function createPendingRoomEventQueue(
   capacity: number = maxPendingRoomEvents,
 ): PendingRoomEventQueue {
