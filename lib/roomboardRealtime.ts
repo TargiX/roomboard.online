@@ -6,6 +6,7 @@ import {
   presenceStateToSnapshots,
   type PresenceState,
 } from "./realtimeHelpers";
+import { createPendingRoomEventQueue } from "./roomboardRealtimeQueue";
 
 const roomboardRealtimeJoinTimeoutMs = 45_000;
 
@@ -75,6 +76,11 @@ export type RoomboardRealtimeSession = {
   updatePresence: (presence: Pick<PresenceSnapshot, "focus" | "x" | "y">) => void;
 };
 
+/**
+ * Create a realtime session for one room: it joins the room channel, tracks
+ * cursor presence, buffers pre-join board events, and exposes the status and
+ * send/close lifecycle used by the room UI.
+ */
 export function createRoomboardRealtimeSession({
   accessToken,
   endpoint,
@@ -100,8 +106,7 @@ export function createRoomboardRealtimeSession({
     x: 0,
     y: 0,
   });
-  const pendingRoomEvents: RoomboardBoardEventInput[] = [];
-  const maxPendingRoomEvents = 50;
+  const pendingRoomEvents = createPendingRoomEventQueue();
   let status: RoomboardRealtimeStatus = "connecting";
   let manuallyClosed = false;
   let joined = false;
@@ -121,7 +126,7 @@ export function createRoomboardRealtimeSession({
     }
 
     joined = false;
-    pendingRoomEvents.length = 0;
+    pendingRoomEvents.clear();
     setStatus("degraded");
   };
 
@@ -169,9 +174,7 @@ export function createRoomboardRealtimeSession({
 
       joined = true;
       setStatus("connected");
-      while (pendingRoomEvents.length > 0) {
-        channel.push("room:event", pendingRoomEvents.shift()!);
-      }
+      pendingRoomEvents.drain((event) => channel.push("room:event", event));
     })
     .receive("error", (response: unknown) => {
       console.warn("Phoenix room channel rejected join", response);
@@ -186,7 +189,7 @@ export function createRoomboardRealtimeSession({
     disconnect() {
       manuallyClosed = true;
       joined = false;
-      pendingRoomEvents.length = 0;
+      pendingRoomEvents.clear();
       setStatus("closed");
       channel.leave();
       socket.disconnect();
@@ -195,8 +198,8 @@ export function createRoomboardRealtimeSession({
       const stamped = { ...event, clientId: sessionId };
       if (joined && channel.state === "joined") {
         channel.push("room:event", stamped);
-      } else if (status === "connecting" && pendingRoomEvents.length < maxPendingRoomEvents) {
-        pendingRoomEvents.push(stamped);
+      } else if (status === "connecting") {
+        pendingRoomEvents.enqueue(stamped);
       }
     },
     updatePresence(presence) {
