@@ -1,4 +1,5 @@
-import { DEFAULT_ROOM_ID } from "@/lib/canvasRoom";
+import { DEFAULT_ROOM_ID } from "./canvasRoom.ts";
+import { PRESENCE_TTL_MS } from "./presenceTtl.ts";
 
 export type PresenceSnapshot = {
   id: string;
@@ -44,7 +45,7 @@ export function listPresence(roomId = DEFAULT_ROOM_ID) {
   const snapshots = getSnapshots(roomId);
 
   for (const [id, snapshot] of snapshots) {
-    if (now - snapshot.updatedAt > 15000) {
+    if (now - snapshot.updatedAt >= PRESENCE_TTL_MS) {
       snapshots.delete(id);
     }
   }
