@@ -68,6 +68,47 @@ async function closeReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
   await reader.cancel();
 }
 
+/**
+ * Pin Date.now() for the duration of a synchronous test body.
+ *
+ * listPresence() evicts snapshots whose age is >= PRESENCE_TTL_MS, and
+ * publishPresence() re-prunes through listPresence() on every publish. In the
+ * exact-TTL boundary test the "fresh" snapshot is only 1 ms inside the
+ * cutoff, so a single millisecond of clock advance between publish and
+ * assert would evict it and flake the suite. Freezing the clock removes that
+ * race without mocking the module under test.
+ */
+function withFrozenClock<T>(frozenNow: number, run: () => T): T {
+  const realNow = Date.now;
+  Date.now = () => frozenNow;
+  try {
+    return run();
+  } finally {
+    Date.now = realNow;
+  }
+}
+
+/**
+ * Run a stream test body with guaranteed reader cleanup.
+ *
+ * The keep-alive interval armed by createPresenceStream() is only cleared by
+ * the stream's cancel() callback. If a read or assertion inside the body
+ * throws, the happy-path closeReader() calls are skipped, the referenced
+ * interval keeps running, and the node --test process can hang waiting on
+ * it. Cancelling every reader in a finally block tears the streams down
+ * either way (reader.cancel() is idempotent for already-cancelled readers).
+ */
+async function withReaders(
+  readers: ReadableStreamDefaultReader<Uint8Array>[],
+  run: () => Promise<void>,
+) {
+  try {
+    await run();
+  } finally {
+    await Promise.all(readers.map((reader) => reader.cancel()));
+  }
+}
+
 describe("listPresence", () => {
   it("lists snapshots newest-first", () => {
     // Timestamps must be real-clock fresh: listPresence prunes entries older
@@ -95,19 +136,26 @@ describe("listPresence", () => {
   it("treats a snapshot exactly TTL old as stale, matching pruneStalePresence", () => {
     // pruneStalePresence keeps strictly-less-than TTL; listPresence must apply
     // the same boundary so a snapshot cannot flicker between the canvas prune
-    // timer and the server-side list.
+    // timer and the server-side list. The clock stays frozen for the whole
+    // test: publishPresence() re-prunes via listPresence(), so even 1 ms of
+    // drift would otherwise evict "fresh" before the assertion runs.
     const room = freshRoom();
     const now = Date.now();
-    publishPresence(
-      snapshot({ id: "edge", updatedAt: now - PRESENCE_TTL_MS }),
-      room,
-    );
-    publishPresence(
-      snapshot({ id: "fresh", updatedAt: now - PRESENCE_TTL_MS + 1 }),
-      room,
-    );
+    withFrozenClock(now, () => {
+      publishPresence(
+        snapshot({ id: "edge", updatedAt: now - PRESENCE_TTL_MS }),
+        room,
+      );
+      publishPresence(
+        snapshot({ id: "fresh", updatedAt: now - PRESENCE_TTL_MS + 1 }),
+        room,
+      );
 
-    assert.deepEqual(listPresence(room).map((entry) => entry.id), ["fresh"]);
+      assert.deepEqual(
+        listPresence(room).map((entry) => entry.id),
+        ["fresh"],
+      );
+    });
   });
 
   it("keeps rooms isolated from each other", () => {
@@ -160,15 +208,16 @@ describe("createPresenceStream", () => {
     publishPresence(snapshot({ id: "seeded", updatedAt: Date.now() }), room);
 
     const reader = createPresenceStream(room).getReader();
-    const frame = await readFrame(reader);
-    await closeReader(reader);
+    await withReaders([reader], async () => {
+      const frame = await readFrame(reader);
 
-    assert.ok(frame);
-    assert.equal(frame.event, "presence");
-    assert.deepEqual(
-      (frame.data as PresenceSnapshot[]).map((entry) => entry.id),
-      ["seeded"],
-    );
+      assert.ok(frame);
+      assert.equal(frame.event, "presence");
+      assert.deepEqual(
+        (frame.data as PresenceSnapshot[]).map((entry) => entry.id),
+        ["seeded"],
+      );
+    });
   });
 
   it("broadcasts presence updates to every live subscriber", async () => {
@@ -176,55 +225,55 @@ describe("createPresenceStream", () => {
     const firstReader = createPresenceStream(room).getReader();
     const secondReader = createPresenceStream(room).getReader();
 
-    // Drain each subscriber's initial frame before publishing.
-    await readFrame(firstReader);
-    await readFrame(secondReader);
+    await withReaders([firstReader, secondReader], async () => {
+      // Drain each subscriber's initial frame before publishing.
+      await readFrame(firstReader);
+      await readFrame(secondReader);
 
-    publishPresence(snapshot({ id: "live", updatedAt: Date.now() }), room);
+      publishPresence(snapshot({ id: "live", updatedAt: Date.now() }), room);
 
-    const firstFrame = await readFrame(firstReader);
-    const secondFrame = await readFrame(secondReader);
+      const firstFrame = await readFrame(firstReader);
+      const secondFrame = await readFrame(secondReader);
 
-    await closeReader(firstReader);
-    await closeReader(secondReader);
-
-    for (const frame of [firstFrame, secondFrame]) {
-      assert.ok(frame);
-      assert.equal(frame.event, "presence");
-      assert.deepEqual(
-        (frame.data as PresenceSnapshot[]).map((entry) => entry.id),
-        ["live"],
-      );
-    }
+      for (const frame of [firstFrame, secondFrame]) {
+        assert.ok(frame);
+        assert.equal(frame.event, "presence");
+        assert.deepEqual(
+          (frame.data as PresenceSnapshot[]).map((entry) => entry.id),
+          ["live"],
+        );
+      }
+    });
   });
 
   it("stops delivering broadcasts to a subscriber after cancel", async () => {
     const room = freshRoom();
 
     const cancelledReader = createPresenceStream(room).getReader();
-    await readFrame(cancelledReader); // drain the initial presence frame
-    await closeReader(cancelledReader);
-
     const survivorReader = createPresenceStream(room).getReader();
-    await readFrame(survivorReader); // drain the initial presence frame
 
-    publishPresence(
-      snapshot({ id: "after-cancel", updatedAt: Date.now() }),
-      room,
-    );
+    await withReaders([cancelledReader, survivorReader], async () => {
+      await readFrame(cancelledReader); // drain the initial presence frame
+      await closeReader(cancelledReader);
+      await readFrame(survivorReader); // drain the initial presence frame
 
-    // The cancelled subscriber must not receive the broadcast…
-    const drained = await cancelledReader.read();
-    assert.equal(drained.done, true);
+      publishPresence(
+        snapshot({ id: "after-cancel", updatedAt: Date.now() }),
+        room,
+      );
 
-    // …while the still-live subscriber does.
-    const survivorFrame = await readFrame(survivorReader);
-    await closeReader(survivorReader);
+      // The cancelled subscriber must not receive the broadcast…
+      const drained = await cancelledReader.read();
+      assert.equal(drained.done, true);
 
-    assert.ok(survivorFrame);
-    assert.deepEqual(
-      (survivorFrame.data as PresenceSnapshot[]).map((entry) => entry.id),
-      ["after-cancel"],
-    );
+      // …while the still-live subscriber does.
+      const survivorFrame = await readFrame(survivorReader);
+
+      assert.ok(survivorFrame);
+      assert.deepEqual(
+        (survivorFrame.data as PresenceSnapshot[]).map((entry) => entry.id),
+        ["after-cancel"],
+      );
+    });
   });
 });
