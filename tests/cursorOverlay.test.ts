@@ -51,6 +51,13 @@ class FakeLayer implements CursorLayerLike {
     this.children.push(...added);
   }
 
+  removeChild(child: FakeCursor) {
+    const index = this.children.indexOf(child);
+    if (index !== -1) {
+      this.children.splice(index, 1);
+    }
+  }
+
   removeChildAt(index: number) {
     return this.children.splice(index, 1)[0];
   }
@@ -193,5 +200,82 @@ describe("syncCursorsToPresence", () => {
     assert.equal(h.layer.children.length, 1);
     assert.equal(h.layer.children[0].label, "u1");
     assert.equal(stray.destroyed, true);
+  });
+
+  it("recreates the cursor when the peer name changes", () => {
+    const h = harness();
+    h.run([snapshot({ id: "u1", name: "Ada", x: 1, y: 2 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
+    const original = h.layer.children[0];
+
+    const moved = h.run([snapshot({ id: "u1", name: "Nova", x: 1, y: 2 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
+
+    assert.equal(h.layer.children.length, 1);
+    assert.notEqual(h.layer.children[0], original, "cursor was recreated");
+    assert.equal(original.destroyed, true);
+    assert.equal(h.layer.children[0].label, "u1");
+    assert.equal(h.layer.children[0].eventMode, "none");
+    assert.deepEqual([h.layer.children[0].x, h.layer.children[0].y], [1, 2]);
+    assert.equal(moved, 1, "fresh cursor counts as moved once it is pinned");
+  });
+
+  it("recreates the cursor when the peer color changes", () => {
+    const h = harness();
+    h.run([snapshot({ id: "u1", color: "#facc5c", x: 1, y: 2 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
+    const original = h.layer.children[0];
+
+    h.run([snapshot({ id: "u1", color: "#60a5fa", x: 1, y: 2 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
+
+    assert.notEqual(h.layer.children[0], original);
+    assert.equal(original.destroyed, true);
+  });
+
+  it("collapses duplicate children sharing an active peer label to one cursor", () => {
+    const h = harness();
+    h.run([snapshot({ id: "u1", x: 1, y: 2 })], { x: 0, y: 0, scale: 1 });
+
+    // Simulate a stale duplicate left behind by an earlier buggy pass.
+    const duplicate = new FakeCursor("u1");
+    h.layer.addChild(duplicate);
+
+    const moved = h.run([snapshot({ id: "u1", x: 1, y: 2 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
+
+    assert.equal(h.layer.children.length, 1, "exactly one cursor per peer");
+    assert.equal(h.layer.children[0].label, "u1");
+    assert.notEqual(h.layer.children[0], duplicate);
+    assert.equal(duplicate.destroyed, true);
+    assert.equal(moved, 0);
+  });
+
+  it("keeps one cursor per peer across repeated sync passes with duplicates present", () => {
+    const h = harness();
+    h.run([snapshot({ id: "u1", x: 1, y: 2 })], { x: 0, y: 0, scale: 1 });
+    h.layer.addChild(new FakeCursor("u1"));
+    h.layer.addChild(new FakeCursor("u1"));
+
+    h.run([snapshot({ id: "u1", x: 3, y: 4 })], { x: 0, y: 0, scale: 1 });
+    h.run([snapshot({ id: "u1", x: 3, y: 4 })], { x: 0, y: 0, scale: 1 });
+
+    assert.equal(h.layer.children.length, 1);
+    assert.equal(h.layer.children[0].label, "u1");
   });
 });

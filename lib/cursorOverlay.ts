@@ -44,6 +44,7 @@ export type CursorLike = {
 export type CursorLayerLike = {
   children: CursorLike[];
   addChild(...children: CursorLike[]): unknown;
+  removeChild(child: CursorLike): unknown;
   removeChildAt(index: number): unknown;
 };
 
@@ -82,13 +83,30 @@ export function getCursorScreenPosition(
  *    `worldX`/`worldY`/`scale`, so a pan or zoom re-pins every remote cursor
  *    even while the room is quiet and no presence events arrive;
  * 2. missing peers get a container from {@link CursorOverlaySyncInput.createCursor}
- *    (labelled by peer id, non-interactive);
+ *    (labelled by peer id, non-interactive), and an existing cursor whose
+ *    display name or color changed is safely recreated so the pill never shows
+ *    stale peer metadata;
  * 3. cursors whose peer disappeared — including peers that went back to the
- *    unpublished `(0, 0)` sentinel — are removed and destroyed.
+ *    unpublished `(0, 0)` sentinel — are removed and destroyed, and duplicate
+ *    children sharing an active peer label collapse to exactly one cursor per
+ *    peer id.
  *
  * Returns how many existing cursors moved this pass, so callers can cheaply
  * detect a no-op (e.g. to skip extra work on quiet ticks).
  */
+
+/**
+ * Metadata signature of the snapshot a cursor container was created from.
+ * The pixi pill bakes the peer name and tint into its graphics at creation
+ * time, so a renamed or recolored peer needs a fresh container; keyed weakly
+ * so destroyed cursors are collectable.
+ */
+const cursorMeta = new WeakMap<CursorLike, string>();
+
+function metaSignature(snapshot: PresenceSnapshot): string {
+  return `${snapshot.name}\u0000${snapshot.color}`;
+}
+
 export function syncCursorsToPresence({
   presence,
   cursorLayer,
@@ -115,9 +133,22 @@ export function syncCursorsToPresence({
 
     if (!cursor) {
       cursor = createCursor(snapshot);
+      cursorMeta.set(cursor, metaSignature(snapshot));
       cursor.label = snapshot.id;
       cursor.eventMode = "none";
       cursorLayer.addChild(cursor);
+    } else if (cursorMeta.get(cursor) !== metaSignature(snapshot)) {
+      // The pixi pill bakes the peer name and tint into its graphics at
+      // creation time, so a renamed/recolored peer needs a fresh cursor.
+      // Position-independent: the re-projection below keeps the peer pinned.
+      const current = createCursor(snapshot);
+      cursorMeta.set(current, metaSignature(snapshot));
+      cursorLayer.removeChild(cursor);
+      cursor.destroy({ children: true });
+      current.label = snapshot.id;
+      current.eventMode = "none";
+      cursorLayer.addChild(current);
+      cursor = current;
     }
 
     const position = getCursorScreenPosition(snapshot, worldX, worldY, scale);
@@ -127,9 +158,24 @@ export function syncCursorsToPresence({
     }
   }
 
+  // Collapse duplicates: the first cursor found for each kept peer id
+  // survives; strays, stale peers, and later duplicates are destroyed.
+  const survivors = new Set<string>();
+  const retained = cursorLayer.children.filter((child) => {
+    if (child.label === undefined) {
+      return false;
+    }
+    const key = String(child.label);
+    if (!keep.has(key) || survivors.has(key)) {
+      return false;
+    }
+    survivors.add(key);
+    return true;
+  });
+
   for (let i = cursorLayer.children.length - 1; i >= 0; i -= 1) {
-    const child = cursorLayer.children[i];
-    if (child.label === undefined || !keep.has(String(child.label))) {
+    if (!retained.includes(cursorLayer.children[i])) {
+      const child = cursorLayer.children[i];
       cursorLayer.removeChildAt(i);
       child.destroy({ children: true });
     }
