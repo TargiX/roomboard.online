@@ -49,6 +49,7 @@ import type {
   RoomVisibility,
 } from "@/lib/canvasRoom";
 import { getDecisionCompletionSignal } from "@/lib/decisionCompletion";
+import { syncCursorsToPresence } from "@/lib/cursorOverlay";
 import { recordAuthoredFirstCard, resolveFirstCardEventName } from "@/lib/firstCardSignal";
 import { dismissRoomLaunchGuide, isRoomLaunchGuideDismissed } from "@/lib/launchGuideState";
 import { getLifecycleCopy, getProfileJoinCopy } from "@/lib/lifecycleCopy";
@@ -1441,6 +1442,12 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const [roomClosed, setRoomClosed] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [presence, setPresence] = useState<PresenceSnapshot[]>([]);
+  // Mirror for ticker callbacks that must read the latest presence without
+  // being re-registered on every presence change.
+  const presenceRef = useRef<PresenceSnapshot[]>([]);
+  // Live handle on the booted Pixi app so per-render effects can attach
+  // ticker callbacks without waiting for a separate state round-trip.
+  const currentAppRef = useRef<Application | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftBody, setDraftBody] = useState("");
@@ -2211,6 +2218,12 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     return () => window.clearInterval(interval);
   }, []);
 
+  // Keep the ticker-readable mirror in sync before the cursor overlay effect
+  // below runs within the same commit.
+  useEffect(() => {
+    presenceRef.current = presence;
+  });
+
   useEffect(() => {
     const host = hostRef.current;
 
@@ -2255,6 +2268,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       app.stage.addChild(world, cursorLayer);
       world.addChild(connectionGraphics, draftConnectionGraphics, itemLayer);
       sceneRef.current = { app, cursorLayer, host: hostEl, itemLayer, itemMap, world, connectionGraphics, draftConnectionGraphics };
+      currentAppRef.current = app;
       syncGridTransform({ world });
       setSceneReady(true);
 
@@ -2323,6 +2337,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       tickerCleanupRef.current.forEach((cleanup) => cleanup());
       tickerCleanupRef.current = [];
       sceneRef.current = null;
+      currentAppRef.current = null;
       setSceneReady(false);
       destroyPixiApp(app);
       hostEl.replaceChildren();
@@ -3405,54 +3420,57 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       return;
     }
 
-    const existing = new Set<string>();
+    // One pass per render; worldX/worldY/scale are read imperatively so a pan
+    // or zoom re-pins every remote cursor through the next ticker pass even
+    // when the room is quiet and `presence` itself did not change.
+    const syncCursorOverlay = () => {
+      const currentScene = sceneRef.current;
 
-    for (const snapshot of presence) {
-      if (snapshot.x === 0 && snapshot.y === 0) {
-        continue;
+      if (!currentScene) {
+        return;
       }
 
-      existing.add(snapshot.id);
-      let cursor = scene.cursorLayer.children.find(
-        (c): c is Container => c instanceof Container && c.label === snapshot.id,
-      ) as Container | undefined;
+      syncCursorsToPresence({
+        presence: presenceRef.current,
+        cursorLayer: currentScene.cursorLayer,
+        worldX: currentScene.world.x,
+        worldY: currentScene.world.y,
+        scale: currentScene.world.scale.x,
+        createCursor: (snapshot) => {
+          const cursor = new Container();
+          const shape = new Graphics();
+          const pill = new Graphics();
+          const label = new Text({
+            resolution: textResolutionRef.current,
+            text: snapshot.name,
+            style: {
+              fill: "#ffffff",
+              fontFamily: pixiFont,
+              fontSize: 10.5,
+              fontWeight: "700",
+            },
+          });
 
-      if (!cursor) {
-        cursor = new Container();
-        cursor.label = snapshot.id;
-        const shape = new Graphics();
-        const pill = new Graphics();
-        const label = new Text({
-          resolution: textResolutionRef.current,
-          text: snapshot.name,
-          style: {
-            fill: "#ffffff",
-            fontFamily: pixiFont,
-            fontSize: 10.5,
-            fontWeight: "700",
-          },
-        });
-        shape.poly([0, 0, 16, 7, 7, 13]).fill(toColor(snapshot.color));
-        pill.roundRect(0, 0, label.width + 14, 20, 5).fill({ color: toColor(snapshot.color), alpha: 0.98 });
-        pill.position.set(12, 15);
-        label.position.set(19, 17);
-        cursor.eventMode = "none";
-        cursor.addChild(shape, pill, label);
-        scene.cursorLayer.addChild(cursor);
-      }
+          shape.poly([0, 0, 16, 7, 7, 13]).fill(toColor(snapshot.color));
+          pill.roundRect(0, 0, label.width + 14, 20, 5).fill({ color: toColor(snapshot.color), alpha: 0.98 });
+          pill.position.set(12, 15);
+          label.position.set(19, 17);
+          cursor.addChild(shape, pill, label);
 
-      const scale = scene.world.scale.x || 1;
-      cursor.position.set(scene.world.x + snapshot.x * scale, scene.world.y + snapshot.y * scale);
-    }
+          return cursor;
+        },
+      });
+    };
 
-    for (let i = scene.cursorLayer.children.length - 1; i >= 0; i--) {
-      const child = scene.cursorLayer.children[i];
-      if (!existing.has((child as Container).label)) {
-        scene.cursorLayer.removeChildAt(i);
-        child.destroy({ children: true });
-      }
-    }
-  }, [presence]);
+    syncCursorOverlay();
+
+    const ticker = currentAppRef.current?.ticker;
+    ticker?.add(syncCursorOverlay);
+
+    return () => {
+      ticker?.remove(syncCursorOverlay);
+    };
+  }, [presence, sceneReady]);
 
   const createItem = async (
     type: "image" | "note",
