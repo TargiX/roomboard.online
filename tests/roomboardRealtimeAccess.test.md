@@ -13,4 +13,5 @@ Covers the HMAC-SHA256 signed short-lived room token in `lib/roomboardRealtimeAc
   signature comparison is length-safe (timing-safe path does not crash on short signatures).
 - Secret handling: no secret → `create` returns `null`, `verify` returns `false`, `hasRoomboard…` is `false`; secret required for a token to exist at all.
 - Serialization format contract: plaintext JSON payload, no header segment (documented divergence from JWT — private wire format).
+- Verify segment handling parity: the signature is everything after the first dot (sidecar `String.split(token, ".", parts: 2)`); trailing separators or appended segments change the compared signature and are rejected, never ignored.
 - `exp` number comparison semantics (e.g. `exp = 0`, float `exp`).

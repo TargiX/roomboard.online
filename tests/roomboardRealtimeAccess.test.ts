@@ -125,20 +125,24 @@ describe("roomboard realtime access tokens", () => {
   });
 
   it("rejects malformed tokens without throwing", () => {
+    const valid = createRoomboardRealtimeAccessToken("room-1", "editor");
+    assert.ok(valid);
+    const [validPayload] = valid.split(".");
     const cases: Array<[string, string]> = [
       ["", "room-1"], // empty
       ["not-a-token", "room-1"], // no dot
       ["payload", "room-1"], // one segment
-      ["a.b.c", "room-1"], // three segments
-      ["only-signature.", "room-1"], // empty payload
-      [".only-payload", "room-1"], // empty signature
-      ["%%%.", "room-1"], // payload is not base64url JSON
-      [Buffer.from("not json").toString("base64url"), "room-1"], // payload is not JSON
-      [Buffer.from('{"v":"rb1","roomId":"room-1","exp":2000000}').toString("base64url"), "room-1"], // no signature
+      ["%%%.", "room-1"], // trailing separator only: empty signature rejected before decode
+      [`${Buffer.from("not json").toString("base64url")}.${sidecarSign(Buffer.from("not json").toString("base64url"), SECRET)}`, "room-1"], // payload is not JSON (signature valid so parsing is reached)
+      [`${Buffer.from('{"v":"rb1","roomId":"room-1","exp":2000000}').toString("base64url")}.`, "room-1"], // empty signature
+      [".only-payload", "room-1"], // leading dot: empty payload
+      [`correct-payload.wrong-suffix`, "room-1"], // signature does not match
+      [`${valid}.extra`, "room-1"], // appended segment: parity contract = suffix belongs to the signature
+      [`${valid}.`, "room-1"], // trailing segment separator only
     ];
 
     for (const [token, roomId] of cases) {
-      assert.equal(verifyRoomboardRealtimeAccessToken(token, roomId), false, `case: ${token[0]?.slice(0, 12)}`);
+      assert.equal(verifyRoomboardRealtimeAccessToken(token, roomId), false, `case: ${token.slice(0, 16)}`);
     }
   });
 
@@ -159,9 +163,9 @@ describe("roomboard realtime access tokens", () => {
 
     const forged = `${forgedPayload}.${sidecarSign(forgedPayload, SECRET)}`;
     assert.equal(verifyRoomboardRealtimeAccessToken(forged, "room-1"), false, "roomId mismatch rejected");
-    // NOTE: 7.25 float exp accepted by TS verify matches the sidecar contract (is_number, no
+    // NOTE: fractional exp accepted by TS verify matches the sidecar contract (is_number, no
     // integer check) — only that the number is > now. Locked here as documented parity.
-    assert.equal(verifyRoomboardRealtimeAccessToken(forged, "room-2"), true, "float exp accepted on both sides");
+    assert.equal(verifyRoomboardRealtimeAccessToken(forged, "room-2"), true, "fractional exp accepted on both sides");
   });
 
   it("rejects wrong version and string exp values the sidecar would refuse", () => {
