@@ -51,7 +51,17 @@ export function verifyRoomboardRealtimeAccessToken(token: string, roomId: string
     return false;
   }
 
-  const [encodedPayload, signature] = token.split(".");
+  // Sidecar parity: the signature is everything after the FIRST dot
+  // (Elixir `String.split(token, ".", parts: 2)`), so trailing separators
+  // or extra segments alter the compared signature instead of being ignored.
+  const separatorIndex = token.indexOf(".");
+
+  if (separatorIndex === -1) {
+    return false;
+  }
+
+  const encodedPayload = token.slice(0, separatorIndex);
+  const signature = token.slice(separatorIndex + 1);
 
   if (!encodedPayload || !signature) {
     return false;
@@ -67,7 +77,13 @@ export function verifyRoomboardRealtimeAccessToken(token: string, roomId: string
 
   try {
     const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<RealtimeAccessPayload>;
-    return payload.v === tokenVersion && payload.roomId === roomId && typeof payload.exp === "number" && payload.exp > Date.now();
+    return (
+      payload.v === tokenVersion &&
+      payload.roomId === roomId &&
+      typeof payload.exp === "number" &&
+      payload.exp > Date.now() &&
+      typeof payload.role === "string"
+    );
   } catch {
     return false;
   }
