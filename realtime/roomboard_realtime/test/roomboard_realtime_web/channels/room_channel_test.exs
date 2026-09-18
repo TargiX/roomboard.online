@@ -16,11 +16,11 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
     %{room_id: room_id, socket: socket}
   end
 
-  defp signed_access_token(room_id, secret, exp \\ System.system_time(:millisecond) + 60_000) do
+  defp signed_access_token(room_id, secret, exp \\ System.system_time(:millisecond) + 60_000, role \\ "editor") do
     payload =
       %{
         "exp" => exp,
-        "role" => "editor",
+        "role" => role,
         "roomId" => room_id,
         "v" => "rb1"
       }
@@ -83,6 +83,33 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
 
     assert {:ok, %{roomId: ^room_id}, _socket} =
              subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token})
+  end
+
+  test "rejects a signed token whose role is not a string", %{
+    room_id: room_id,
+    socket: socket
+  } do
+    secret = "test-roomboard-realtime-secret"
+    previous_secret = System.get_env("ROOMBOARD_REALTIME_SECRET")
+    System.put_env("ROOMBOARD_REALTIME_SECRET", secret)
+
+    on_exit(fn ->
+      if previous_secret do
+        System.put_env("ROOMBOARD_REALTIME_SECRET", previous_secret)
+      else
+        System.delete_env("ROOMBOARD_REALTIME_SECRET")
+      end
+    end)
+
+    non_string_roles = [nil, 1, true, ["editor"]]
+
+    for role <- non_string_roles do
+      token = signed_access_token(room_id, secret, System.system_time(:millisecond) + 60_000, role)
+
+      assert {:error, %{reason: "unauthorized_room"}} =
+               subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token}),
+             "role #{inspect(role)} must be rejected"
+    end
   end
 
   test "updates presence without retracking", %{room_id: room_id, socket: socket} do
