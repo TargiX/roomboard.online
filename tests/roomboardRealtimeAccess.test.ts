@@ -158,7 +158,7 @@ describe("roomboard realtime access tokens", () => {
 
   it("rejects payload field drift even with a valid signature", () => {
     const forgedPayload = Buffer.from(
-      JSON.stringify({ exp: 2_000_000, roomId: "room-2", role: "editor", v: "rb1" }),
+      JSON.stringify({ exp: 2_000_000.5, roomId: "room-2", role: "editor", v: "rb1" }),
     ).toString("base64url");
 
     const forged = `${forgedPayload}.${sidecarSign(forgedPayload, SECRET)}`;
@@ -174,7 +174,7 @@ describe("roomboard realtime access tokens", () => {
       { exp: "2000000", roomId: "room-1", role: "editor", v: "rb1" },
       { exp: 0, roomId: "room-1", role: "editor", v: "rb1" },
       { roomId: "room-1", role: "editor", v: "rb1" }, // missing exp
-      { roomId: "room-1", v: "rb1" }, // missing role
+      { exp: 2_000_000, roomId: "room-1", v: "rb1" }, // missing role
     ]) {
       const forgedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
       const forged = `${forgedPayload}.${sidecarSign(forgedPayload, SECRET)}`;

@@ -178,7 +178,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
          true <- secure_signature?(encoded_payload, signature, secret),
          {:ok, json} <- Base.url_decode64(encoded_payload, padding: false),
          {:ok, payload} <- Jason.decode(json),
-         %{"v" => "rb1", "roomId" => ^room_id, "exp" => exp} <- payload,
+         %{"v" => "rb1", "roomId" => ^room_id, "role" => _role, "exp" => exp} <- payload,
          true <- is_number(exp) and exp > now_ms() do
       true
     else
