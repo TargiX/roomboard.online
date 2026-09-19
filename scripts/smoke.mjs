@@ -64,10 +64,14 @@ try {
   );
   await desktop.getByRole("heading", { name: /decide what ships/i }).waitFor({ timeout: 15000 });
   const campaignRoomCreateResponsePromise = desktop.waitForResponse(
-    (response) => response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
+    (response) =>
+      response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
     { timeout: 30000 },
   );
-  await desktop.getByRole("button", { name: /^start launch approval$/i }).first().click();
+  await desktop
+    .getByRole("button", { name: /^start launch approval$/i })
+    .first()
+    .click();
   const campaignRoomCreateResponse = await campaignRoomCreateResponsePromise;
   const campaignCreated = await campaignRoomCreateResponse.json();
 
@@ -77,10 +81,14 @@ try {
     typeof campaignCreated.room.itemCount !== "number" ||
     campaignCreated.room.itemCount < 5
   ) {
-    throw new Error(`Expected campaign CTA to create a seeded owned landing-review room, got ${JSON.stringify(campaignCreated)}.`);
+    throw new Error(
+      `Expected campaign CTA to create a seeded owned landing-review room, got ${JSON.stringify(campaignCreated)}.`,
+    );
   }
 
-  await desktop.waitForURL(new RegExp(`/rooms/${campaignCreated.room.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), { timeout: 15000 });
+  await desktop.waitForURL(new RegExp(`/rooms/${campaignCreated.room.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), {
+    timeout: 15000,
+  });
   await waitForRoomReady(desktop, "Smoke Campaign Owner");
   await desktop.waitForFunction(
     ({ roomId, ownerToken }) => {
@@ -99,7 +107,9 @@ try {
     campaignSnapshot.permissions?.role !== "owner" ||
     !campaignSnapshot.items?.some((item) => item.id === "note-decision-record")
   ) {
-    throw new Error(`Expected campaign-created room to load owner access and landing starter cards, got ${JSON.stringify(campaignSnapshot)}.`);
+    throw new Error(
+      `Expected campaign-created room to load owner access and landing starter cards, got ${JSON.stringify(campaignSnapshot)}.`,
+    );
   }
 
   const campaignCleanupResponse = await fetch(`${baseUrl}/api/rooms/${campaignCreated.room.id}?permanent=true`, {
@@ -134,7 +144,9 @@ try {
   const pendingUploadOwnerToken = pendingUploadRoomResponse.ownerToken;
 
   if (!pendingUploadRoom?.id || !pendingUploadOwnerToken) {
-    throw new Error(`Expected pending upload room creation response, got ${JSON.stringify(pendingUploadRoomResponse)}.`);
+    throw new Error(
+      `Expected pending upload room creation response, got ${JSON.stringify(pendingUploadRoomResponse)}.`,
+    );
   }
 
   await desktop.evaluate(() => {
@@ -142,10 +154,13 @@ try {
     localStorage.removeItem("roomboard-owner-tokens");
     localStorage.removeItem("roomboard-invite-tokens");
   });
-  await desktop.goto(`${baseUrl}/rooms/${pendingUploadRoom.id}#ownerToken=${encodeURIComponent(pendingUploadOwnerToken)}`, {
-    timeout: 15000,
-    waitUntil: "domcontentloaded",
-  });
+  await desktop.goto(
+    `${baseUrl}/rooms/${pendingUploadRoom.id}#ownerToken=${encodeURIComponent(pendingUploadOwnerToken)}`,
+    {
+      timeout: 15000,
+      waitUntil: "domcontentloaded",
+    },
+  );
   await desktop.waitForSelector("canvas", { timeout: 15000 });
   await desktop.locator(".rb-loader").waitFor({ state: "detached", timeout: 15000 });
   await desktop.locator('input[type="file"]').setInputFiles({
@@ -192,7 +207,8 @@ try {
   }
   await desktop.getByText("Finished example:", { exact: false }).waitFor({ timeout: 15000 });
   const sampleRoomCreateResponsePromise = desktop.waitForResponse(
-    (response) => response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
+    (response) =>
+      response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
     { timeout: 30000 },
   );
   await desktop.getByRole("button", { name: /use this launch workflow/i }).click();
@@ -203,7 +219,9 @@ try {
     throw new Error(`Expected sample banner to create an owned room, got ${JSON.stringify(sampleCreated)}.`);
   }
 
-  await desktop.waitForURL(new RegExp(`/rooms/${sampleCreated.room.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), { timeout: 15000 });
+  await desktop.waitForURL(new RegExp(`/rooms/${sampleCreated.room.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), {
+    timeout: 15000,
+  });
   await waitForRoomReady(desktop, "Smoke Sample Owner");
   await desktop.locator(".rb-launch-guide").waitFor({ state: "visible", timeout: 15000 });
   await desktop.waitForFunction(
@@ -264,20 +282,24 @@ try {
     legacyPresenceDeleteResponse.status !== 410 ||
     publicRoomsPayload.rooms?.some((listedRoom) => listedRoom.id === room.id)
   ) {
-    throw new Error(`Expected legacy APIs closed and created rooms hidden without tokens, got ${JSON.stringify({
-      legacyPresenceDeleteStatus: legacyPresenceDeleteResponse.status,
-      legacyPresencePostStatus: legacyPresencePostResponse.status,
-      legacyPresenceStatus: legacyPresenceResponse.status,
-      legacyRoomStatus: legacyRoomResponse.status,
-      publicRooms: publicRoomsPayload.rooms,
-    })}.`);
+    throw new Error(
+      `Expected legacy APIs closed and created rooms hidden without tokens, got ${JSON.stringify({
+        legacyPresenceDeleteStatus: legacyPresenceDeleteResponse.status,
+        legacyPresencePostStatus: legacyPresencePostResponse.status,
+        legacyPresenceStatus: legacyPresenceResponse.status,
+        legacyRoomStatus: legacyRoomResponse.status,
+        publicRooms: publicRoomsPayload.rooms,
+      })}.`,
+    );
   }
 
   const ownerSnapshotResponse = await fetch(`${baseUrl}/api/rooms/${room.id}`, {
     headers: { "X-Room-Owner-Token": ownerToken },
   });
   const ownerSnapshot = await ownerSnapshotResponse.json();
-  const ownerQuerySnapshotResponse = await fetch(`${baseUrl}/api/rooms/${room.id}?ownerToken=${encodeURIComponent(ownerToken)}`);
+  const ownerQuerySnapshotResponse = await fetch(
+    `${baseUrl}/api/rooms/${room.id}?ownerToken=${encodeURIComponent(ownerToken)}`,
+  );
   const ownerQuerySnapshot = await ownerQuerySnapshotResponse.json();
   const editorToken = ownerSnapshot.inviteTokens?.editor;
   const viewerToken = ownerSnapshot.inviteTokens?.viewer;
@@ -289,7 +311,9 @@ try {
     !viewerToken ||
     ownerQuerySnapshot.permissions?.role !== "owner"
   ) {
-    throw new Error(`Expected owner permissions and invite tokens, got ${JSON.stringify({ ownerSnapshot, ownerQuerySnapshot })}.`);
+    throw new Error(
+      `Expected owner permissions and invite tokens, got ${JSON.stringify({ ownerSnapshot, ownerQuerySnapshot })}.`,
+    );
   }
 
   const uploadForm = () => {
@@ -310,10 +334,12 @@ try {
   });
 
   if (guestUploadResponse.status !== 403 || viewerUploadResponse.status !== 403) {
-    throw new Error(`Expected uploads to require editor access, got ${JSON.stringify({
-      guestUploadStatus: guestUploadResponse.status,
-      viewerUploadStatus: viewerUploadResponse.status,
-    })}.`);
+    throw new Error(
+      `Expected uploads to require editor access, got ${JSON.stringify({
+        guestUploadStatus: guestUploadResponse.status,
+        viewerUploadStatus: viewerUploadResponse.status,
+      })}.`,
+    );
   }
 
   await desktop.evaluate(() => {
@@ -322,7 +348,10 @@ try {
     localStorage.removeItem("roomboard-invite-tokens");
   });
 
-  await desktop.goto(`${baseUrl}/rooms/${room.id}?new=1&starter=blank#ownerToken=${encodeURIComponent(ownerToken)}`, { timeout: 15000, waitUntil: "domcontentloaded" });
+  await desktop.goto(`${baseUrl}/rooms/${room.id}?new=1&starter=blank#ownerToken=${encodeURIComponent(ownerToken)}`, {
+    timeout: 15000,
+    waitUntil: "domcontentloaded",
+  });
   await waitForRoomReady(desktop, "Smoke Desktop");
   await desktop.waitForFunction(
     ({ roomId, ownerToken }) => {
@@ -334,7 +363,9 @@ try {
   );
   await desktop.locator(".rb-launch-guide").waitFor({ state: "visible", timeout: 15000 });
   await desktop.getByText("Start with the decision question.").waitFor({ timeout: 15000 });
-  await desktop.getByText("Add the decision question first, then copy the invite.", { exact: false }).waitFor({ timeout: 15000 });
+  await desktop
+    .getByText("Add the decision question first, then copy the invite.", { exact: false })
+    .waitFor({ timeout: 15000 });
   await desktop.getByText("This browser remembers owner access", { exact: false }).waitFor({ timeout: 15000 });
   await desktop.getByRole("button", { name: /copy invite message/i }).click();
   await desktop.locator(".rb-launch-guide__checklist > div:nth-child(2).done").waitFor({ timeout: 15000 });
@@ -418,36 +449,45 @@ try {
     { roomId: room.id, ownerToken },
     { timeout: 15000 },
   );
-  await desktop.locator(".rb-review-filters").getByRole("button", { name: /approved/i }).click();
+  await desktop
+    .locator(".rb-review-filters")
+    .getByRole("button", { name: /approved/i })
+    .click();
   await desktop.waitForFunction(
     () => document.querySelector(".rb-coords")?.textContent?.includes("objects1/1"),
     undefined,
     { timeout: 15000 },
   );
-  await desktop.locator(".rb-review-filters").getByRole("button", { name: /changes/i }).click();
+  await desktop
+    .locator(".rb-review-filters")
+    .getByRole("button", { name: /changes/i })
+    .click();
   await desktop.locator(".rb-filter-empty").waitFor({ state: "visible", timeout: 15000 });
   await desktop.locator(".rb-review-filters").getByRole("button", { name: /^all/i }).click();
   await desktop.locator(".rb-filter-empty").waitFor({ state: "detached", timeout: 15000 });
-  await desktop.evaluate(async ({ roomId, ownerToken }) => {
-    const response = await fetch(`/api/rooms/${roomId}`, {
-      body: JSON.stringify({
-        action: "item",
-        author: "Smoke Desktop",
-        body: "Target card for handle connection.",
-        color: "#10b981",
-        title: "Connection target",
-        type: "note",
-        x: 260,
-        y: -40,
-      }),
-      headers: { "Content-Type": "application/json", "X-Room-Owner-Token": ownerToken },
-      method: "POST",
-    });
+  await desktop.evaluate(
+    async ({ roomId, ownerToken }) => {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        body: JSON.stringify({
+          action: "item",
+          author: "Smoke Desktop",
+          body: "Target card for handle connection.",
+          color: "#10b981",
+          title: "Connection target",
+          type: "note",
+          x: 260,
+          y: -40,
+        }),
+        headers: { "Content-Type": "application/json", "X-Room-Owner-Token": ownerToken },
+        method: "POST",
+      });
 
-    if (!response.ok) {
-      throw new Error(`Connection target creation failed with ${response.status}`);
-    }
-  }, { roomId: room.id, ownerToken });
+      if (!response.ok) {
+        throw new Error(`Connection target creation failed with ${response.status}`);
+      }
+    },
+    { roomId: room.id, ownerToken },
+  );
   await desktop.waitForFunction(
     async ({ roomId, ownerToken }) => {
       const response = await fetch(`/api/rooms/${roomId}`, {
@@ -466,16 +506,19 @@ try {
     undefined,
     { timeout: 15000 },
   );
-  const connectionItems = await desktop.evaluate(async ({ roomId, ownerToken }) => {
-    const response = await fetch(`/api/rooms/${roomId}`, {
-      headers: { "X-Room-Owner-Token": ownerToken },
-    });
-    const snapshot = await response.json();
-    return {
-      from: snapshot.items.find((item) => item.status === "approved"),
-      to: snapshot.items.find((item) => item.title === "Connection target"),
-    };
-  }, { roomId: room.id, ownerToken });
+  const connectionItems = await desktop.evaluate(
+    async ({ roomId, ownerToken }) => {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        headers: { "X-Room-Owner-Token": ownerToken },
+      });
+      const snapshot = await response.json();
+      return {
+        from: snapshot.items.find((item) => item.status === "approved"),
+        to: snapshot.items.find((item) => item.title === "Connection target"),
+      };
+    },
+    { roomId: room.id, ownerToken },
+  );
   const canvasHost = await desktop.locator(".canvas-host").boundingBox();
 
   if (!canvasHost || !connectionItems.from || !connectionItems.to) {
@@ -519,7 +562,7 @@ try {
     { timeout: 15000 },
   );
   const closeInspectorButton = desktop.getByRole("button", { name: /close inspector/i });
-  if ((await closeInspectorButton.count()) > 0 && await closeInspectorButton.isEnabled()) {
+  if ((await closeInspectorButton.count()) > 0 && (await closeInspectorButton.isEnabled())) {
     await closeInspectorButton.click();
   }
   const recapRequest = desktop.waitForResponse(
@@ -532,7 +575,9 @@ try {
   const recapHeaders = { "X-Room-Owner-Token": ownerToken };
   const recapResponse = await fetch(`${baseUrl}/api/rooms/${room.id}/recap`, { headers: recapHeaders });
   const recapPayload = await recapResponse.json();
-  const recapMarkdownResponse = await fetch(`${baseUrl}/api/rooms/${room.id}/recap?format=markdown`, { headers: recapHeaders });
+  const recapMarkdownResponse = await fetch(`${baseUrl}/api/rooms/${room.id}/recap?format=markdown`, {
+    headers: recapHeaders,
+  });
   const recapMarkdown = await recapMarkdownResponse.text();
 
   if (
@@ -544,7 +589,9 @@ try {
     !recapPayload.recap?.markdown?.includes("## Approved") ||
     !recapMarkdown.includes("# Roomboard recap: Smoke review room")
   ) {
-    throw new Error(`Expected room recap markdown export, got ${JSON.stringify({ recapPayload, markdownStatus: recapMarkdownResponse.status, recapMarkdown })}.`);
+    throw new Error(
+      `Expected room recap markdown export, got ${JSON.stringify({ recapPayload, markdownStatus: recapMarkdownResponse.status, recapMarkdown })}.`,
+    );
   }
 
   const heading = await desktop.locator(".header-title").first().innerText();
@@ -585,7 +632,9 @@ try {
   }
 
   if (canvasState.nonBlank < 1000) {
-    console.warn(`Pixi canvas readback returned ${canvasState.nonBlank} sampled pixels; continuing because hosted WebGL readback can be blank.`);
+    console.warn(
+      `Pixi canvas readback returned ${canvasState.nonBlank} sampled pixels; continuing because hosted WebGL readback can be blank.`,
+    );
   }
 
   await desktop.locator('input[type="file"]').setInputFiles({
@@ -602,11 +651,7 @@ try {
         headers: { "X-Room-Owner-Token": ownerToken },
       });
       const snapshot = await response.json();
-      return snapshot.items.some(
-        (item) =>
-          item.type === "image" &&
-          item.imageUrl,
-      );
+      return snapshot.items.some((item) => item.type === "image" && item.imageUrl);
     },
     { roomId: room.id, ownerToken },
     { timeout: 15000 },
@@ -707,13 +752,16 @@ try {
     throw new Error(`Expected presence count, got "${countText}".`);
   }
 
-  const closeStatus = await mobile.evaluate(async ({ roomId, token }) => {
-    const response = await fetch(`/api/rooms/${roomId}`, {
-      headers: { "X-Room-Owner-Token": token },
-      method: "DELETE",
-    });
-    return response.status;
-  }, { roomId: room.id, token: ownerToken });
+  const closeStatus = await mobile.evaluate(
+    async ({ roomId, token }) => {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        headers: { "X-Room-Owner-Token": token },
+        method: "DELETE",
+      });
+      return response.status;
+    },
+    { roomId: room.id, token: ownerToken },
+  );
 
   if (closeStatus !== 200) {
     throw new Error(`Expected room close to return 200, got ${closeStatus}.`);
@@ -732,13 +780,16 @@ try {
     throw new Error("Expected closed room to be removed from active rooms.");
   }
 
-  const permanentDeleteStatus = await mobile.evaluate(async ({ roomId, token }) => {
-    const response = await fetch(`/api/rooms/${roomId}?permanent=true`, {
-      headers: { "X-Room-Owner-Token": token },
-      method: "DELETE",
-    });
-    return response.status;
-  }, { roomId: room.id, token: ownerToken });
+  const permanentDeleteStatus = await mobile.evaluate(
+    async ({ roomId, token }) => {
+      const response = await fetch(`/api/rooms/${roomId}?permanent=true`, {
+        headers: { "X-Room-Owner-Token": token },
+        method: "DELETE",
+      });
+      return response.status;
+    },
+    { roomId: room.id, token: ownerToken },
+  );
 
   if (permanentDeleteStatus !== 200) {
     throw new Error(`Expected closed smoke room cleanup to return 200, got ${permanentDeleteStatus}.`);
@@ -748,7 +799,9 @@ try {
     throw new Error(`Browser errors:\n${errors.join("\n")}`);
   }
 
-  console.log("Smoke passed: landing renders, room backend creates boards, file upload works, link access can lock/unlock, notes work, rooms close, and smoke data is deleted.");
+  console.log(
+    "Smoke passed: landing renders, room backend creates boards, file upload works, link access can lock/unlock, notes work, rooms close, and smoke data is deleted.",
+  );
 } finally {
   await browser.close();
 }

@@ -20,9 +20,7 @@ export type PendingRoomEventQueue = {
 };
 
 /** Create a bounded FIFO queue for pre-join room events. */
-export function createPendingRoomEventQueue(
-  capacity: number = maxPendingRoomEvents,
-): PendingRoomEventQueue {
+export function createPendingRoomEventQueue(capacity: number = maxPendingRoomEvents): PendingRoomEventQueue {
   const events: RoomboardBoardEventInput[] = [];
 
   return {

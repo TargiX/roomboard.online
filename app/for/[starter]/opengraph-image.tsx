@@ -82,9 +82,7 @@ const aliases: Record<string, keyof typeof campaignPreviews> = {
 
 function readCampaignPreview(starter: string) {
   const normalized = starter.toLowerCase().replace(/_/g, "-").trim();
-  const canonical = normalized in campaignPreviews
-    ? normalized
-    : aliases[normalized];
+  const canonical = normalized in campaignPreviews ? normalized : aliases[normalized];
 
   return canonical ? campaignPreviews[canonical] : null;
 }
@@ -98,167 +96,163 @@ export default async function Image({ params }: OgImageProps) {
   }
 
   return new ImageResponse(
-    (
+    <div
+      style={{
+        alignItems: "center",
+        background: "#0a0c10",
+        color: "#f4f1e8",
+        display: "flex",
+        fontFamily: "Inter, Arial, sans-serif",
+        height: "100%",
+        justifyContent: "center",
+        padding: 56,
+        width: "100%",
+      }}
+    >
       <div
         style={{
-          alignItems: "center",
-          background: "#0a0c10",
-          color: "#f4f1e8",
+          border: "1px solid #252b34",
+          borderRadius: 24,
           display: "flex",
-          fontFamily: "Inter, Arial, sans-serif",
+          gap: 44,
           height: "100%",
-          justifyContent: "center",
-          padding: 56,
+          overflow: "hidden",
+          padding: 46,
           width: "100%",
         }}
       >
         <div
           style={{
-            border: "1px solid #252b34",
-            borderRadius: 24,
             display: "flex",
-            gap: 44,
-            height: "100%",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            width: 480,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+            <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
+              <div
+                style={{
+                  alignItems: "center",
+                  background: preview.accent,
+                  borderRadius: 12,
+                  color: "#111318",
+                  display: "flex",
+                  fontSize: 26,
+                  fontWeight: 850,
+                  height: 48,
+                  justifyContent: "center",
+                  width: 48,
+                }}
+              >
+                R
+              </div>
+              <div style={{ color: "#e9edf4", fontSize: 32, fontWeight: 850 }}>Roomboard</div>
+            </div>
+
+            <div style={{ color: preview.accent, display: "flex", fontSize: 22, fontWeight: 800 }}>
+              {preview.eyebrow}
+            </div>
+            <div
+              style={{
+                color: "#f4f1e8",
+                fontSize: 62,
+                fontWeight: 850,
+                letterSpacing: 0,
+                lineHeight: 0.98,
+              }}
+            >
+              {preview.title}
+            </div>
+            <div style={{ color: "#a9b1bf", fontSize: 27, lineHeight: 1.35 }}>{preview.promise}</div>
+          </div>
+
+          <div style={{ color: "#7f8795", display: "flex", fontSize: 21, gap: 18 }}>
+            <span>Private by default</span>
+            <span>Invite links</span>
+            <span>No account gate</span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "#10141b",
+            border: "1px solid #29313d",
+            borderRadius: 22,
+            display: "flex",
+            flex: 1,
             overflow: "hidden",
-            padding: 46,
-            width: "100%",
+            position: "relative",
           }}
         >
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "space-between",
-              width: 480,
+              backgroundImage:
+                "linear-gradient(#202632 1px, transparent 1px), linear-gradient(90deg, #202632 1px, transparent 1px)",
+              backgroundSize: "36px 36px",
+              inset: 0,
+              opacity: 0.44,
+              position: "absolute",
             }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
-              <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
-                <div
-                  style={{
-                    alignItems: "center",
-                    background: preview.accent,
-                    borderRadius: 12,
-                    color: "#111318",
-                    display: "flex",
-                    fontSize: 26,
-                    fontWeight: 850,
-                    height: 48,
-                    justifyContent: "center",
-                    width: 48,
-                  }}
-                >
-                  R
-                </div>
-                <div style={{ color: "#e9edf4", fontSize: 32, fontWeight: 850 }}>Roomboard</div>
-              </div>
-
-              <div style={{ color: preview.accent, display: "flex", fontSize: 22, fontWeight: 800 }}>
-                {preview.eyebrow}
-              </div>
-              <div
-                style={{
-                  color: "#f4f1e8",
-                  fontSize: 62,
-                  fontWeight: 850,
-                  letterSpacing: 0,
-                  lineHeight: 0.98,
-                }}
-              >
-                {preview.title}
-              </div>
-              <div style={{ color: "#a9b1bf", fontSize: 27, lineHeight: 1.35 }}>
-                {preview.promise}
-              </div>
+          />
+          {preview.cards.map((card) => (
+            <div
+              key={card.title}
+              style={{
+                background: "#171c25",
+                border: `2px solid ${card.color}`,
+                borderRadius: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
+                height: card.height,
+                left: card.left,
+                padding: 18,
+                position: "absolute",
+                top: card.top,
+                width: card.width,
+              }}
+            >
+              <div style={{ color: "#f4f1e8", fontSize: 23, fontWeight: 800 }}>{card.title}</div>
+              <div style={{ background: "#2a313d", borderRadius: 8, height: 15, width: "72%" }} />
+              <div style={{ background: "#242b36", borderRadius: 8, height: 15, width: "52%" }} />
             </div>
-
-            <div style={{ color: "#7f8795", display: "flex", fontSize: 21, gap: 18 }}>
-              <span>Private by default</span>
-              <span>Invite links</span>
-              <span>No account gate</span>
-            </div>
-          </div>
-
+          ))}
           <div
             style={{
-              background: "#10141b",
-              border: "1px solid #29313d",
-              borderRadius: 22,
+              background: preview.accent,
+              borderRadius: 999,
+              color: "#111318",
               display: "flex",
-              flex: 1,
-              overflow: "hidden",
-              position: "relative",
+              fontSize: 22,
+              fontWeight: 850,
+              left: 310,
+              padding: "10px 16px",
+              position: "absolute",
+              top: 64,
             }}
           >
-            <div
-              style={{
-                backgroundImage:
-                  "linear-gradient(#202632 1px, transparent 1px), linear-gradient(90deg, #202632 1px, transparent 1px)",
-                backgroundSize: "36px 36px",
-                inset: 0,
-                opacity: 0.44,
-                position: "absolute",
-              }}
-            />
-            {preview.cards.map((card) => (
-              <div
-                key={card.title}
-                style={{
-                  background: "#171c25",
-                  border: `2px solid ${card.color}`,
-                  borderRadius: 16,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 14,
-                  height: card.height,
-                  left: card.left,
-                  padding: 18,
-                  position: "absolute",
-                  top: card.top,
-                  width: card.width,
-                }}
-              >
-                <div style={{ color: "#f4f1e8", fontSize: 23, fontWeight: 800 }}>{card.title}</div>
-                <div style={{ background: "#2a313d", borderRadius: 8, height: 15, width: "72%" }} />
-                <div style={{ background: "#242b36", borderRadius: 8, height: 15, width: "52%" }} />
-              </div>
-            ))}
-            <div
-              style={{
-                background: preview.accent,
-                borderRadius: 999,
-                color: "#111318",
-                display: "flex",
-                fontSize: 22,
-                fontWeight: 850,
-                left: 310,
-                padding: "10px 16px",
-                position: "absolute",
-                top: 64,
-              }}
-            >
-              Editor invited
-            </div>
-            <div
-              style={{
-                background: "#48a7ff",
-                borderRadius: 999,
-                color: "#071018",
-                display: "flex",
-                fontSize: 20,
-                fontWeight: 850,
-                left: 68,
-                padding: "9px 14px",
-                position: "absolute",
-                top: 370,
-              }}
-            >
-              Decision ready
-            </div>
+            Editor invited
+          </div>
+          <div
+            style={{
+              background: "#48a7ff",
+              borderRadius: 999,
+              color: "#071018",
+              display: "flex",
+              fontSize: 20,
+              fontWeight: 850,
+              left: 68,
+              padding: "9px 14px",
+              position: "absolute",
+              top: 370,
+            }}
+          >
+            Decision ready
           </div>
         </div>
       </div>
-    ),
+    </div>,
     size,
   );
 }

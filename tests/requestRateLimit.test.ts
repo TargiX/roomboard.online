@@ -35,7 +35,9 @@ describe("request rate limiting", () => {
 
   it("uses forwarded IP headers before falling back to local", () => {
     assert.equal(
-      getRequestClientKey(new Request("https://roomboard.test", { headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" } })),
+      getRequestClientKey(
+        new Request("https://roomboard.test", { headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" } }),
+      ),
       "203.0.113.10",
     );
     assert.equal(

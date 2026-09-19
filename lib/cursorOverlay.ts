@@ -127,9 +127,7 @@ export function syncCursorsToPresence({
 
     keep.add(snapshot.id);
 
-    let cursor = cursorLayer.children.find(
-      (child) => child.label === snapshot.id,
-    );
+    let cursor = cursorLayer.children.find((child) => child.label === snapshot.id);
 
     if (!cursor) {
       cursor = createCursor(snapshot);

@@ -26,7 +26,9 @@ export default async function BillingSuccessPage({ searchParams }: { searchParam
     <main className="billing-success">
       <section>
         <div className="eyebrow">Billing status</div>
-        <h1>{isDemo ? "Billing is not active here" : params.portal ? "Billing portal opened" : `${plan.name} is ready`}</h1>
+        <h1>
+          {isDemo ? "Billing is not active here" : params.portal ? "Billing portal opened" : `${plan.name} is ready`}
+        </h1>
         <p>
           {isDemo
             ? "Roomboard rooms do not require payment right now. Return to Roomboard to create or join a private decision room."

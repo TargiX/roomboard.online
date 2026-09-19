@@ -8,12 +8,8 @@ const PRICE_ID = "price_test_studio";
 // env must be set before the dynamic import below resolves it.
 process.env.STRIPE_STUDIO_ANNUAL_PRICE_ID = PRICE_ID;
 
-const {
-  buildBillingProfileRow,
-  buildBillingSubscriptionRow,
-  resolveBillingPlanId,
-  resolveStripeObjectId,
-} = await import("../lib/billingWebhook.ts");
+const { buildBillingProfileRow, buildBillingSubscriptionRow, resolveBillingPlanId, resolveStripeObjectId } =
+  await import("../lib/billingWebhook.ts");
 
 function buildSubscription(overrides: Record<string, unknown> = {}): Stripe.Subscription {
   return {
@@ -23,7 +19,9 @@ function buildSubscription(overrides: Record<string, unknown> = {}): Stripe.Subs
     lifecycle: 1,
     // Since Stripe API version 2025-03-31 the billing period lives on the
     // subscription item, not on the subscription itself.
-    items: { data: [{ price: { id: PRICE_ID }, current_period_end: 1_900_000_000, current_period_start: 1_868_544_000 }] },
+    items: {
+      data: [{ price: { id: PRICE_ID }, current_period_end: 1_900_000_000, current_period_start: 1_868_544_000 }],
+    },
     metadata: {},
     status: "active",
     ...overrides,

@@ -20,9 +20,7 @@ function normalizeVercelUrl(value?: string) {
     return null;
   }
 
-  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
-    ? trimmed
-    : `https://${trimmed}`;
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
 }
 
 export function buildDeploymentInfo(env: DeploymentEnv = process.env): DeploymentInfo {

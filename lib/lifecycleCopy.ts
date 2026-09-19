@@ -53,7 +53,8 @@ export function getLifecycleCopy(
         accessBadge: "Locked · invite only",
         accessBanner: "Room is invite-only. Share the editor or viewer link from the header.",
         emptyStateTitle: `${name}, start with one decision question`,
-        emptyStateBody: "Add a decision note, screenshot, or reference first. Then share an editor link when there is visual material for the team to react to.",
+        emptyStateBody:
+          "Add a decision note, screenshot, or reference first. Then share an editor link when there is visual material for the team to react to.",
         emptyStateAction: "Copy editor link",
       };
     }
@@ -63,7 +64,8 @@ export function getLifecycleCopy(
         accessBadge: "Locked · editor",
         accessBanner: "This room is invite-only. You joined with an editor link and can still edit the board.",
         emptyStateTitle: `Hi ${name}, ready to start`,
-        emptyStateBody: "Drop a decision note or upload an image to start the room. Other invited editors will see your changes in realtime.",
+        emptyStateBody:
+          "Drop a decision note or upload an image to start the room. Other invited editors will see your changes in realtime.",
         emptyStateAction: "Add the first card",
       };
     }
@@ -82,7 +84,8 @@ export function getLifecycleCopy(
       accessBadge: "Open · link access",
       accessBanner: "Anyone with the room link can join as an editor. Use Lock in the header to switch to invite-only.",
       emptyStateTitle: `${name}, this is a fresh room`,
-      emptyStateBody: "Add a decision note or upload an image to start the room. You can change the access at any time from the header.",
+      emptyStateBody:
+        "Add a decision note or upload an image to start the room. You can change the access at any time from the header.",
       emptyStateAction: "Add the first card",
     };
   }
@@ -92,7 +95,8 @@ export function getLifecycleCopy(
       accessBadge: "Open · editor",
       accessBanner: "This room is open to anyone with the link. Your edits are visible to other editors in realtime.",
       emptyStateTitle: `Hi ${name}, ready to start`,
-      emptyStateBody: "Drop a decision note or upload an image to start the room. Other editors will see your changes in realtime.",
+      emptyStateBody:
+        "Drop a decision note or upload an image to start the room. Other editors will see your changes in realtime.",
       emptyStateAction: "Add the first card",
     };
   }
@@ -101,7 +105,8 @@ export function getLifecycleCopy(
     accessBadge: "Open · viewer",
     accessBanner: "You're viewing this room as a read-only guest. Ask the creator for editor access to contribute.",
     emptyStateTitle: `${name}, this room is empty`,
-    emptyStateBody: "The creator has not added any cards yet. Check back later, or ask the creator to share what to decide.",
+    emptyStateBody:
+      "The creator has not added any cards yet. Check back later, or ask the creator to share what to decide.",
     emptyStateAction: "Open rooms console",
   };
 }

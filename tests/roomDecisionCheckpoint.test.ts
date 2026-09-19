@@ -36,35 +36,50 @@ describe("getRoomDecisionCheckpoint", () => {
   });
 
   it("prioritizes changes before undecided and review work", () => {
-    assert.deepEqual(getRoomDecisionCheckpoint(makeRoom({
-      itemCount: 5,
-      statusCounts: { changes_requested: 1, open: 2, reviewing: 1 },
-    })), {
-      detail: "1 card needs changes",
-      label: "Needs changes",
-      tone: "needs_changes",
-    });
+    assert.deepEqual(
+      getRoomDecisionCheckpoint(
+        makeRoom({
+          itemCount: 5,
+          statusCounts: { changes_requested: 1, open: 2, reviewing: 1 },
+        }),
+      ),
+      {
+        detail: "1 card needs changes",
+        label: "Needs changes",
+        tone: "needs_changes",
+      },
+    );
   });
 
   it("makes outstanding decisions visible before a room is ready", () => {
-    assert.deepEqual(getRoomDecisionCheckpoint(makeRoom({
-      itemCount: 3,
-      statusCounts: { approved: 1, open: 2 },
-    })), {
-      detail: "2 cards need a call",
-      label: "Decision checkpoint",
-      tone: "needs_decision",
-    });
+    assert.deepEqual(
+      getRoomDecisionCheckpoint(
+        makeRoom({
+          itemCount: 3,
+          statusCounts: { approved: 1, open: 2 },
+        }),
+      ),
+      {
+        detail: "2 cards need a call",
+        label: "Decision checkpoint",
+        tone: "needs_decision",
+      },
+    );
   });
 
   it("marks fully approved rooms as ready", () => {
-    assert.deepEqual(getRoomDecisionCheckpoint(makeRoom({
-      itemCount: 3,
-      statusCounts: { approved: 3 },
-    })), {
-      detail: "3/3 cards approved",
-      label: "Decision ready",
-      tone: "ready",
-    });
+    assert.deepEqual(
+      getRoomDecisionCheckpoint(
+        makeRoom({
+          itemCount: 3,
+          statusCounts: { approved: 3 },
+        }),
+      ),
+      {
+        detail: "3/3 cards approved",
+        label: "Decision ready",
+        tone: "ready",
+      },
+    );
   });
 });

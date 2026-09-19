@@ -1,4 +1,4 @@
-import { isRoomCapacityError, isRoomNotFoundError } from "./canvasRoom.ts";
+import { isRoomCapacityError, isRoomConflictError, isRoomNotFoundError } from "./canvasRoom.ts";
 
 /**
  * Room routes authorize against a snapshot and then mutate, so a room can be
@@ -23,10 +23,11 @@ export async function withRoomNotFoundAs404(handler: () => Promise<Response>): P
     }
 
     if (isRoomCapacityError(error)) {
-      return Response.json(
-        { error: error.message, kind: error.kind, limit: error.limit },
-        { status: 409 },
-      );
+      return Response.json({ error: error.message, kind: error.kind, limit: error.limit }, { status: 409 });
+    }
+
+    if (isRoomConflictError(error)) {
+      return Response.json({ error: "The room changed while saving. Refresh and try again." }, { status: 409 });
     }
 
     throw error;

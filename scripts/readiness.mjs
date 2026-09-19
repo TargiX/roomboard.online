@@ -79,7 +79,10 @@ function assertTextIncludes(text, expected, context) {
 
 function assertTextExcludes(text, unexpected, context) {
   const searchable = typeof text === "string" ? text.replace(/<!--\s*-->/g, "") : text;
-  assert(typeof searchable === "string" && !searchable.includes(unexpected), `${context} should not include "${unexpected}"`);
+  assert(
+    typeof searchable === "string" && !searchable.includes(unexpected),
+    `${context} should not include "${unexpected}"`,
+  );
 }
 
 function assertLandingDoesNotPersistAppTheme() {
@@ -146,11 +149,19 @@ function assertFirstRoomProfileCopy() {
   assertTextIncludes(canvasSource, "visual material prompt", "First room launch guide copy");
   assertTextIncludes(canvasSource, "feedback prompt", "First room launch guide copy");
   assertTextIncludes(canvasSource, "final decision card", "First room launch guide copy");
-  assertTextIncludes(canvasSource, "Add the decision question first, then copy the invite", "First room launch guide copy");
+  assertTextIncludes(
+    canvasSource,
+    "Add the decision question first, then copy the invite",
+    "First room launch guide copy",
+  );
   assertTextIncludes(canvasSource, 'useState<RoomVisibility>("private")', "First room privacy default");
   assertTextIncludes(canvasSource, 'snapshot.room?.visibility ?? "private"', "First room privacy default");
   assertTextIncludes(canvasSource, 'event.room.visibility ?? "private"', "First room privacy default");
-  assertTextIncludes(roomModelSource, 'room.visibility === "public" ? "public" : "private"', "Room model privacy default");
+  assertTextIncludes(
+    roomModelSource,
+    'room.visibility === "public" ? "public" : "private"',
+    "Room model privacy default",
+  );
   assertTextIncludes(roomModelSource, 'visibility: room.visibility ?? "private"', "Room model privacy default");
   assertTextIncludes(canvasSource, "Room Display Name Saved", "First room analytics copy");
   assertTextIncludes(canvasSource, "Delete permanently", "First room data deletion");
@@ -191,7 +202,11 @@ function assertAnalyticsDoesNotStorePrivatePaths() {
   const posthogSource = readFileSync(new URL("../instrumentation-client.ts", import.meta.url), "utf8");
   assertTextIncludes(analyticsSource, "getSafeLandingPath", "Analytics private path guard");
   assertTextIncludes(analyticsSource, 'pathname.startsWith("/for/")', "Analytics private path guard");
-  assertTextIncludes(analyticsSource, "...(safeLandingPath ? { landingPath: safeLandingPath } : {})", "Analytics private path guard");
+  assertTextIncludes(
+    analyticsSource,
+    "...(safeLandingPath ? { landingPath: safeLandingPath } : {})",
+    "Analytics private path guard",
+  );
   assertTextExcludes(analyticsSource, "landingPath: window.location.pathname", "Analytics private path guard");
   assertTextIncludes(posthogSource, "autocapture: false", "PostHog private room guard");
   assertTextIncludes(posthogSource, "capture_pageview: false", "PostHog private room guard");
@@ -226,7 +241,11 @@ function assertLaunchFunnelEvents() {
   assertTextIncludes(landingSource, 'trackProductEvent("Room Created"', "Launch funnel landing events");
   assertTextIncludes(dashboardSource, 'trackProductEvent("Room Start Clicked"', "Launch funnel dashboard events");
   assertTextIncludes(dashboardSource, 'trackProductEvent("Room Created"', "Launch funnel dashboard events");
-  assertTextIncludes(dashboardSource, 'trackProductEvent("Room Invite Message Copied"', "Launch funnel dashboard events");
+  assertTextIncludes(
+    dashboardSource,
+    'trackProductEvent("Room Invite Message Copied"',
+    "Launch funnel dashboard events",
+  );
   assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Opened"', "Launch funnel room events");
   assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Display Name Saved"', "Launch funnel room events");
   assertTextIncludes(canvasSource, '"Room First Card Created"', "Launch funnel room events");
@@ -264,23 +283,38 @@ async function assertStarterCreateContract(template, expected) {
   const created = createResult.body;
   const roomId = created?.room?.id;
   const ownerToken = created?.ownerToken;
-  assert(roomId && ownerToken, `${template} starter create response missing room/ownerToken: ${JSON.stringify(created)}`);
+  assert(
+    roomId && ownerToken,
+    `${template} starter create response missing room/ownerToken: ${JSON.stringify(created)}`,
+  );
   assert(created.room.access === "locked", `${template} starter should be locked, got ${created.room.access}`);
-  assert(created.room.visibility === "private", `${template} starter should be private, got ${created.room.visibility}`);
-  assert(created.room.itemCount === expected.itemCount, `${template} starter item count drifted: ${created.room.itemCount}`);
+  assert(
+    created.room.visibility === "private",
+    `${template} starter should be private, got ${created.room.visibility}`,
+  );
+  assert(
+    created.room.itemCount === expected.itemCount,
+    `${template} starter item count drifted: ${created.room.itemCount}`,
+  );
   assert(
     created.room.connectionCount === expected.connectionCount,
     `${template} starter connection count drifted: ${created.room.connectionCount}`,
   );
 
   const bareSnapshot = await request(`/api/rooms/${roomId}`);
-  assert(bareSnapshot.response.status === 403, `${template} starter bare snapshot returned ${bareSnapshot.response.status}`);
+  assert(
+    bareSnapshot.response.status === 403,
+    `${template} starter bare snapshot returned ${bareSnapshot.response.status}`,
+  );
 
   const ownerSnapshot = await request(`/api/rooms/${roomId}`, {
     headers: { "X-Room-Owner-Token": ownerToken },
   });
   assert(ownerSnapshot.response.ok, `${template} starter owner snapshot returned ${ownerSnapshot.response.status}`);
-  assert(ownerSnapshot.body?.permissions?.role === "owner", `${template} starter owner snapshot did not include owner role`);
+  assert(
+    ownerSnapshot.body?.permissions?.role === "owner",
+    `${template} starter owner snapshot did not include owner role`,
+  );
   for (const itemId of expected.itemIds) {
     assert(
       ownerSnapshot.body?.items?.some((item) => item.id === itemId),
@@ -307,10 +341,10 @@ async function main() {
   let shouldCleanup = false;
 
   try {
-  assertLandingDoesNotPersistAppTheme();
-  assertLandingCreatesLaunchApprovalRoom();
-  assertMarketingMetadataCopy();
-  assertRoomsConsoleDefaults();
+    assertLandingDoesNotPersistAppTheme();
+    assertLandingCreatesLaunchApprovalRoom();
+    assertMarketingMetadataCopy();
+    assertRoomsConsoleDefaults();
     assertFirstRoomProfileCopy();
     assertSmokeProtectsCurrentPositioning();
     assertSourceDocsProtectCurrentPositioning();
@@ -329,17 +363,20 @@ async function main() {
     if (strict) {
       assert(
         hasLaunchHealthContract,
-        `Strict mode requires the current launch health contract. Deploy the current app before traffic: ${JSON.stringify({
-          health,
-          missing: ["launchReady", "launch.checks"].filter((key) => {
-            if (key === "launchReady") return typeof health?.launchReady !== "boolean";
-            return !Array.isArray(health?.launch?.checks);
-          }),
-        })}`,
+        `Strict mode requires the current launch health contract. Deploy the current app before traffic: ${JSON.stringify(
+          {
+            health,
+            missing: ["launchReady", "launch.checks"].filter((key) => {
+              if (key === "launchReady") return typeof health?.launchReady !== "boolean";
+              return !Array.isArray(health?.launch?.checks);
+            }),
+          },
+        )}`,
       );
       if (expectedGitSha) {
         assert(
-          Boolean(deployedGitSha) && (deployedGitSha.startsWith(expectedGitSha) || expectedGitSha.startsWith(deployedGitSha)),
+          Boolean(deployedGitSha) &&
+            (deployedGitSha.startsWith(expectedGitSha) || expectedGitSha.startsWith(deployedGitSha)),
           `Production deployment commit does not match READINESS_EXPECTED_GIT_SHA: ${JSON.stringify({
             deployed: deployedGitSha || null,
             expected: expectedGitSha,
@@ -366,7 +403,9 @@ async function main() {
     const homeResult = await request("/");
     assert(homeResult.response.ok, `Home page returned ${homeResult.response.status}`);
     assert(
-      typeof homeResult.body === "string" && homeResult.body.includes('href="/rooms"') && homeResult.body.includes("My rooms"),
+      typeof homeResult.body === "string" &&
+        homeResult.body.includes('href="/rooms"') &&
+        homeResult.body.includes("My rooms"),
       "Home page should link to the rooms console for returning users",
     );
     assertTextIncludes(homeResult.body, '<link rel="canonical" href="https://www.roomboard.online"/>', "Home page");
@@ -424,10 +463,18 @@ async function main() {
     const campaignLandingResult = await request("/for/landing-review");
     assert(campaignLandingResult.response.ok, `/for/landing-review returned ${campaignLandingResult.response.status}`);
     assertTextIncludes(campaignLandingResult.body, "Approve what ships before launch", "/for/landing-review metadata");
-    assertTextIncludes(campaignLandingResult.body, "Open a private launch approval room with a clean workflow", "/for/landing-review metadata");
+    assertTextIncludes(
+      campaignLandingResult.body,
+      "Open a private launch approval room with a clean workflow",
+      "/for/landing-review metadata",
+    );
     assertTextIncludes(campaignLandingResult.body, "Decide what ships.", "/for/landing-review");
     assertTextIncludes(campaignLandingResult.body, "See a finished decision", "/for/landing-review");
-    assertTextIncludes(campaignLandingResult.body, "/for/landing-review/opengraph-image", "/for/landing-review metadata");
+    assertTextIncludes(
+      campaignLandingResult.body,
+      "/for/landing-review/opengraph-image",
+      "/for/landing-review metadata",
+    );
     assertTextExcludes(campaignLandingResult.body, "Choose a room starter", "/for/landing-review");
     assertTextExcludes(campaignLandingResult.body, "Opens with", "/for/landing-review");
     assertTextIncludes(campaignLandingResult.body, "No account needed", "/for/landing-review");
@@ -437,7 +484,10 @@ async function main() {
     assertTextExcludes(campaignLandingResult.body, "the user", "/for/landing-review");
     assertTextExcludes(campaignLandingResult.body, "Stripe subscriptions", "/for/landing-review");
     const campaignLandingOgImageResponse = await fetchResource("/for/landing-review/opengraph-image");
-    assert(campaignLandingOgImageResponse.ok, `Landing campaign OpenGraph image returned ${campaignLandingOgImageResponse.status}`);
+    assert(
+      campaignLandingOgImageResponse.ok,
+      `Landing campaign OpenGraph image returned ${campaignLandingOgImageResponse.status}`,
+    );
     assert(
       campaignLandingOgImageResponse.headers.get("content-type")?.includes("image/png"),
       `Landing campaign OpenGraph image should be image/png, got ${campaignLandingOgImageResponse.headers.get("content-type")}`,
@@ -446,7 +496,10 @@ async function main() {
 
     const sampleRoomResult = await request(`/api/rooms/${demoRoomId}`);
     assert(sampleRoomResult.response.ok, `Sample room returned ${sampleRoomResult.response.status}`);
-    assert(sampleRoomResult.body?.room?.name === "Launch Approval — Decision Complete", `Sample room name drifted: ${sampleRoomResult.body?.room?.name}`);
+    assert(
+      sampleRoomResult.body?.room?.name === "Launch Approval — Decision Complete",
+      `Sample room name drifted: ${sampleRoomResult.body?.room?.name}`,
+    );
     assert(
       Array.isArray(sampleRoomResult.body?.items) && sampleRoomResult.body.items.length >= 5,
       `Sample room should include a seeded landing review board: ${JSON.stringify(sampleRoomResult.body)}`,
@@ -468,12 +521,24 @@ async function main() {
     assertTextIncludes(sampleRoomPageResult.body, "noindex", "Sample room page");
     assertTextIncludes(sampleRoomPageResult.body, `mailto:${supportEmail}`, "Sample room page support link");
     assertTextIncludes(sampleRoomPageResult.body, "Room%20context%3A%20Room%20canvas", "Sample room page support link");
-    assertTextExcludes(sampleRoomPageResult.body, "Launch Approval — Decision Complete — snapshot", "Sample room page metadata");
+    assertTextExcludes(
+      sampleRoomPageResult.body,
+      "Launch Approval — Decision Complete — snapshot",
+      "Sample room page metadata",
+    );
 
     const moodboardLandingResult = await request("/for/moodboard");
     assert(moodboardLandingResult.response.ok, `/for/moodboard returned ${moodboardLandingResult.response.status}`);
-    assertTextIncludes(moodboardLandingResult.body, "Choose a visual direction without a messy thread", "/for/moodboard metadata");
-    assertTextIncludes(moodboardLandingResult.body, "Open a private moodboard decision room", "/for/moodboard metadata");
+    assertTextIncludes(
+      moodboardLandingResult.body,
+      "Choose a visual direction without a messy thread",
+      "/for/moodboard metadata",
+    );
+    assertTextIncludes(
+      moodboardLandingResult.body,
+      "Open a private moodboard decision room",
+      "/for/moodboard metadata",
+    );
     assertTextIncludes(moodboardLandingResult.body, "Moodboard Decision", "/for/moodboard");
     assertTextIncludes(moodboardLandingResult.body, "View moodboard sample", "/for/moodboard");
     assertTextIncludes(moodboardLandingResult.body, "/for/moodboard/opengraph-image", "/for/moodboard metadata");
@@ -482,7 +547,10 @@ async function main() {
     assertTextExcludes(moodboardLandingResult.body, "creative feedback", "/for/moodboard");
     assertTextExcludes(moodboardLandingResult.body, "visual feedback", "/for/moodboard");
     const moodboardOgImageResponse = await fetchResource("/for/moodboard/opengraph-image");
-    assert(moodboardOgImageResponse.ok, `Moodboard campaign OpenGraph image returned ${moodboardOgImageResponse.status}`);
+    assert(
+      moodboardOgImageResponse.ok,
+      `Moodboard campaign OpenGraph image returned ${moodboardOgImageResponse.status}`,
+    );
     assert(
       moodboardOgImageResponse.headers.get("content-type")?.includes("image/png"),
       `Moodboard campaign OpenGraph image should be image/png, got ${moodboardOgImageResponse.headers.get("content-type")}`,
@@ -490,7 +558,10 @@ async function main() {
     await moodboardOgImageResponse.body?.cancel();
 
     const moodboardSampleRoomResult = await request(`/api/rooms/${moodboardDemoRoomId}`);
-    assert(moodboardSampleRoomResult.response.ok, `Moodboard sample room returned ${moodboardSampleRoomResult.response.status}`);
+    assert(
+      moodboardSampleRoomResult.response.ok,
+      `Moodboard sample room returned ${moodboardSampleRoomResult.response.status}`,
+    );
     assert(
       moodboardSampleRoomResult.body?.room?.name === "Moodboard Decision",
       `Moodboard sample room name drifted: ${moodboardSampleRoomResult.body?.room?.name}`,
@@ -512,12 +583,20 @@ async function main() {
       `Moodboard sample snapshot returned ${moodboardSampleSnapshotResult.response.status}`,
     );
     assertTextIncludes(moodboardSampleSnapshotResult.body, "noindex", "Moodboard sample snapshot");
-    assertTextExcludes(moodboardSampleSnapshotResult.body, "Moodboard Decision", "Moodboard sample snapshot hides the room name until the owner publishes it");
+    assertTextExcludes(
+      moodboardSampleSnapshotResult.body,
+      "Moodboard Decision",
+      "Moodboard sample snapshot hides the room name until the owner publishes it",
+    );
 
     const blankLandingResult = await request("/for/blank-room");
     assert(blankLandingResult.response.ok, `/for/blank-room returned ${blankLandingResult.response.status}`);
     assertTextIncludes(blankLandingResult.body, "Start a private visual decision room", "/for/blank-room metadata");
-    assertTextIncludes(blankLandingResult.body, "Open a private visual decision room for prepared screenshots", "/for/blank-room metadata");
+    assertTextIncludes(
+      blankLandingResult.body,
+      "Open a private visual decision room for prepared screenshots",
+      "/for/blank-room metadata",
+    );
     assertTextIncludes(blankLandingResult.body, "Start blank room", "/for/blank-room");
     assertTextIncludes(blankLandingResult.body, "Visual Decision Room", "/for/blank-room");
     assertTextIncludes(blankLandingResult.body, "/for/blank-room/opengraph-image", "/for/blank-room metadata");
@@ -563,18 +642,33 @@ async function main() {
     assertTextIncludes(privacyResult.body, "subject=Roomboard%20support", "Privacy page support link");
     assertTextIncludes(privacyResult.body, "does not require an account or payment", "Privacy page");
     assertTextIncludes(privacyResult.body, "return to rooms without an account", "Privacy page token return copy");
-    assertTextIncludes(privacyResult.body, "owner backup link carries creator access", "Privacy page owner backup copy");
+    assertTextIncludes(
+      privacyResult.body,
+      "owner backup link carries creator access",
+      "Privacy page owner backup copy",
+    );
     assertTextIncludes(privacyResult.body, "private access key", "Privacy page owner backup warning");
     assertTextIncludes(privacyResult.body, "Delete permanently", "Privacy page data deletion");
     assertTextIncludes(privacyResult.body, "Permanent deletion cannot be undone", "Privacy page data deletion");
     assertTextIncludes(privacyResult.body, "display-name setup", "Privacy page analytics");
-    assertTextIncludes(privacyResult.body, "uploads, comments, status changes, connector creation", "Privacy page analytics");
-    assertTextIncludes(privacyResult.body, "avoid room names, room IDs, invite tokens, owner tokens, filenames, image URLs, display names, messages, and card content", "Privacy page analytics");
+    assertTextIncludes(
+      privacyResult.body,
+      "uploads, comments, status changes, connector creation",
+      "Privacy page analytics",
+    );
+    assertTextIncludes(
+      privacyResult.body,
+      "avoid room names, room IDs, invite tokens, owner tokens, filenames, image URLs, display names, messages, and card content",
+      "Privacy page analytics",
+    );
     assertTextExcludes(privacyResult.body, "source repository", "Privacy page");
     assertTextExcludes(privacyResult.body, "experimental auth", "Privacy page");
 
     const billingSuccessResult = await request("/billing/success?demo=1");
-    assert(billingSuccessResult.response.ok, `/billing/success?demo=1 returned ${billingSuccessResult.response.status}`);
+    assert(
+      billingSuccessResult.response.ok,
+      `/billing/success?demo=1 returned ${billingSuccessResult.response.status}`,
+    );
     assertTextIncludes(billingSuccessResult.body, "noindex", "Billing status page");
     assertTextIncludes(billingSuccessResult.body, "Billing is not active here", "Billing status page");
     assertTextExcludes(billingSuccessResult.body, "Stripe demo mode", "Billing status page");
@@ -607,7 +701,11 @@ async function main() {
     assertTextIncludes(dashboardResult.body, "Clean room + first decision guide", "/rooms dashboard default starter");
     assertTextExcludes(dashboardResult.body, "Design review", "/rooms dashboard default starter");
     assertTextExcludes(dashboardResult.body, "Moodboard pass", "/rooms dashboard default starter");
-    assertTextIncludes(dashboardResult.body, "remembers owner access in this browser", "/rooms dashboard owner-access copy");
+    assertTextIncludes(
+      dashboardResult.body,
+      "remembers owner access in this browser",
+      "/rooms dashboard owner-access copy",
+    );
     assertTextIncludes(dashboardResult.body, "Private and locked by default", "/rooms dashboard private-room copy");
     assertTextIncludes(dashboardResult.body, "Open an invite", "/rooms dashboard invite recovery");
     assertTextIncludes(dashboardResult.body, `mailto:${supportEmail}`, "/rooms dashboard support link");
@@ -677,7 +775,9 @@ async function main() {
     const ownerSnapshot = await request(`/api/rooms/${createdRoomId}`, {
       headers: { "X-Room-Owner-Token": ownerToken },
     });
-    const ownerQuerySnapshot = await request(`/api/rooms/${createdRoomId}?ownerToken=${encodeURIComponent(ownerToken)}`);
+    const ownerQuerySnapshot = await request(
+      `/api/rooms/${createdRoomId}?ownerToken=${encodeURIComponent(ownerToken)}`,
+    );
     assert(ownerSnapshot.response.ok, `Owner room snapshot returned ${ownerSnapshot.response.status}`);
     assert(ownerSnapshot.body?.permissions?.role === "owner", "Owner snapshot did not include owner role");
     assert(ownerQuerySnapshot.body?.permissions?.role === "owner", "Owner query snapshot did not include owner role");

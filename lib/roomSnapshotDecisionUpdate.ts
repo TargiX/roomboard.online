@@ -24,11 +24,7 @@ function itemTitle(item: DecisionUpdateItem) {
   return item.title.trim() || "Untitled card";
 }
 
-export function buildRoomSnapshotDecisionUpdate({
-  items,
-  roomName,
-  snapshotUrl,
-}: RoomSnapshotDecisionUpdateInput) {
+export function buildRoomSnapshotDecisionUpdate({ items, roomName, snapshotUrl }: RoomSnapshotDecisionUpdateInput) {
   const unresolved = items
     .filter((item) => item.status !== "approved")
     .sort((a, b) => statusMeta[a.status].priority - statusMeta[b.status].priority || b.updatedAt - a.updatedAt)
@@ -36,18 +32,16 @@ export function buildRoomSnapshotDecisionUpdate({
   const approvedCount = items.filter((item) => item.status === "approved").length;
   const revisionCount = items.filter((item) => item.status === "changes_requested").length;
   const pendingCount = items.filter((item) => item.status === "open" || item.status === "reviewing").length;
-  const headline = revisionCount > 0
-    ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
-    : pendingCount > 0
-      ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
-      : items.length > 0
-        ? "Every card has a decision. This room is ready to share."
-        : "This board is ready for its first decision.";
+  const headline =
+    revisionCount > 0
+      ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
+      : pendingCount > 0
+        ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
+        : items.length > 0
+          ? "Every card has a decision. This room is ready to share."
+          : "This board is ready for its first decision.";
 
-  const lines = [
-    `Decision update — ${roomName}`,
-    headline,
-  ];
+  const lines = [`Decision update — ${roomName}`, headline];
 
   if (unresolved.length > 0) {
     lines.push("", "Next up:");

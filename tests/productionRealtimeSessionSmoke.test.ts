@@ -41,12 +41,12 @@ describe("production realtime session smoke helpers", () => {
       () => resolveProductionSessionBaseUrl({ PRODUCTION_REALTIME_BASE_URL: "http://localhost:3050" }),
       /requires an https base URL/,
     );
+    assert.throws(() => resolveProductionSessionBaseUrl({ PRODUCTION_REALTIME_BASE_URL: "" }), /must not be empty/);
     assert.throws(
-      () => resolveProductionSessionBaseUrl({ PRODUCTION_REALTIME_BASE_URL: "" }),
-      /must not be empty/,
-    );
-    assert.throws(
-      () => resolveProductionSessionBaseUrl({ PRODUCTION_REALTIME_BASE_URL: "https://preview.roomboard.online/?target=prod" }),
+      () =>
+        resolveProductionSessionBaseUrl({
+          PRODUCTION_REALTIME_BASE_URL: "https://preview.roomboard.online/?target=prod",
+        }),
       /must not contain a query string or fragment/,
     );
     assert.throws(
@@ -54,7 +54,10 @@ describe("production realtime session smoke helpers", () => {
       /must not contain a query string or fragment/,
     );
     assert.throws(
-      () => resolveProductionSessionBaseUrl({ PRODUCTION_REALTIME_BASE_URL: "https://user:pass@preview.roomboard.online/" }),
+      () =>
+        resolveProductionSessionBaseUrl({
+          PRODUCTION_REALTIME_BASE_URL: "https://user:pass@preview.roomboard.online/",
+        }),
       /must not contain credentials/,
     );
     assert.throws(
@@ -74,9 +77,6 @@ describe("production realtime session smoke helpers", () => {
       [token],
     );
 
-    assert.equal(
-      message,
-      "Primary failure: assertion failed with [REDACTED]\nCleanup failure: DELETE returned 500",
-    );
+    assert.equal(message, "Primary failure: assertion failed with [REDACTED]\nCleanup failure: DELETE returned 500");
   });
 });

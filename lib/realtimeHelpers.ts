@@ -38,11 +38,8 @@ export function getRealtimeSyncContract({
   status,
   useRealtimeFallback,
 }: RealtimeSyncContractOptions) {
-  const transport: RealtimeSyncTransport = hasRealtimeEndpoint && !useRealtimeFallback
-    ? "phoenix"
-    : useRealtimeFallback
-      ? "fallback"
-      : "none";
+  const transport: RealtimeSyncTransport =
+    hasRealtimeEndpoint && !useRealtimeFallback ? "phoenix" : useRealtimeFallback ? "fallback" : "none";
   const label =
     status === "connecting"
       ? "connecting"
@@ -87,10 +84,7 @@ export function presenceStateToSnapshots(state: PresenceState) {
  * - The result is sorted newest-first so the most active collaborator renders
  *   on top of the cursor overlay.
  */
-export function mergePresenceSnapshots(
-  current: PresenceSnapshot[],
-  incoming: PresenceSnapshot[],
-) {
+export function mergePresenceSnapshots(current: PresenceSnapshot[], incoming: PresenceSnapshot[]) {
   const now = Date.now();
   const merged = new Map<string, PresenceSnapshot>();
 

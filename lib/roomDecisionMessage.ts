@@ -29,7 +29,9 @@ export function buildRoomDecisionMessage(room: RoomDecisionMessageRoom, url: str
       lines.push("This room needs its first decision question or visual direction.", "Add the starting point here:");
       break;
     case "needs_changes":
-      lines.push(`${pluralize(changesRequested, "card")} ${agree(changesRequested, "needs", "need")} changes before the decision can close.`);
+      lines.push(
+        `${pluralize(changesRequested, "card")} ${agree(changesRequested, "needs", "need")} changes before the decision can close.`,
+      );
       if (open + reviewing > 0) {
         const pending = open + reviewing;
         lines.push(`${pluralize(pending, "card")} still ${agree(pending, "needs", "need")} a response.`);
@@ -38,14 +40,21 @@ export function buildRoomDecisionMessage(room: RoomDecisionMessageRoom, url: str
       break;
     case "needs_decision":
       lines.push(`${pluralize(open, "card")} ${agree(open, "needs", "need")} a decision.`);
-      if (reviewing > 0) lines.push(`${pluralize(reviewing, "card")} ${agree(reviewing, "is", "are")} already in review.`);
+      if (reviewing > 0)
+        lines.push(`${pluralize(reviewing, "card")} ${agree(reviewing, "is", "are")} already in review.`);
       lines.push("Please make the call in the room:");
       break;
     case "reviewing":
-      lines.push(`${pluralize(reviewing, "card")} ${agree(reviewing, "is", "are")} in review and ready for your response.`, "Open the board to close the decision:");
+      lines.push(
+        `${pluralize(reviewing, "card")} ${agree(reviewing, "is", "are")} in review and ready for your response.`,
+        "Open the board to close the decision:",
+      );
       break;
     case "ready":
-      lines.push(`Decision ready: ${Math.min(approved, Math.max(0, room.itemCount))}/${Math.max(0, room.itemCount)} cards approved.`, "The decision record is ready to share:");
+      lines.push(
+        `Decision ready: ${Math.min(approved, Math.max(0, room.itemCount))}/${Math.max(0, room.itemCount)} cards approved.`,
+        "The decision record is ready to share:",
+      );
       break;
   }
 

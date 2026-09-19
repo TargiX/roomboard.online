@@ -18,16 +18,19 @@ describe("buildLaunchHealth", () => {
     });
 
     assert.equal(health.launchReady, false);
-    assert.deepEqual(health.checks.map((check) => [check.key, check.ok]), [
-      ["analytics_configured", false],
-      ["app_origin", false],
-      ["durable_storage", false],
-      ["upload_storage", false],
-      ["realtime_signed_tokens", false],
-      ["realtime_endpoint", false],
-      ["server_realtime_fallback", false],
-      ["support_contact", false],
-    ]);
+    assert.deepEqual(
+      health.checks.map((check) => [check.key, check.ok]),
+      [
+        ["analytics_configured", false],
+        ["app_origin", false],
+        ["durable_storage", false],
+        ["upload_storage", false],
+        ["realtime_signed_tokens", false],
+        ["realtime_endpoint", false],
+        ["server_realtime_fallback", false],
+        ["support_contact", false],
+      ],
+    );
     assert.match(health.checks[0].remediation, /NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN/);
     assert.match(health.checks[1].remediation, /NEXT_PUBLIC_APP_URL/);
     assert.match(health.checks[2].remediation, /SUPABASE_URL/);
@@ -52,7 +55,10 @@ describe("buildLaunchHealth", () => {
     });
 
     assert.equal(health.launchReady, true);
-    assert.equal(health.checks.every((check) => check.ok), true);
+    assert.equal(
+      health.checks.every((check) => check.ok),
+      true,
+    );
   });
 
   it("does not mark a public upload bucket as launch ready", () => {

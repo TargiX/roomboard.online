@@ -13,10 +13,7 @@ export type JsonBodyResult<T> = JsonBodyError | JsonBodySuccess<T>;
 
 export const defaultJsonBodyLimit = 64 * 1024;
 
-export async function readJsonBody<T>(
-  request: Request,
-  maxBytes = defaultJsonBodyLimit,
-): Promise<JsonBodyResult<T>> {
+export async function readJsonBody<T>(request: Request, maxBytes = defaultJsonBodyLimit): Promise<JsonBodyResult<T>> {
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     return { error: `JSON body must be ${maxBytes} bytes or smaller.`, ok: false, status: 413 };

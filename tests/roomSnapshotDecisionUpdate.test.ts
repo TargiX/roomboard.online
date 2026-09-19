@@ -17,17 +17,20 @@ describe("buildRoomSnapshotDecisionUpdate", () => {
       ],
     });
 
-    assert.equal(update, [
-      "Decision update — Homepage review",
-      "1 card needs revisions before the decision is final.",
-      "",
-      "Next up:",
-      "- Needs changes: Tighten hero crop",
-      "- In review: Check mobile hierarchy",
-      "- Needs a call: Choose headline",
-      "",
-      `Read-only snapshot: ${snapshotUrl}`,
-    ].join("\n"));
+    assert.equal(
+      update,
+      [
+        "Decision update — Homepage review",
+        "1 card needs revisions before the decision is final.",
+        "",
+        "Next up:",
+        "- Needs changes: Tighten hero crop",
+        "- In review: Check mobile hierarchy",
+        "- Needs a call: Choose headline",
+        "",
+        `Read-only snapshot: ${snapshotUrl}`,
+      ].join("\n"),
+    );
   });
 
   it("marks a fully approved room as ready without inventing next steps", () => {

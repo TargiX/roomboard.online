@@ -1,8 +1,4 @@
-export type RealtimeConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "degraded"
-  | "closed";
+export type RealtimeConnectionStatus = "connecting" | "connected" | "degraded" | "closed";
 
 export type RealtimeSyncTransport = "phoenix" | "fallback" | "none";
 
@@ -23,10 +19,7 @@ export type RealtimeSyncPresentation = {
   transport: RealtimeSyncTransport;
 };
 
-export function getRealtimeSyncAnnouncement(
-  presentation: RealtimeSyncPresentation,
-  hadOutage: boolean,
-) {
+export function getRealtimeSyncAnnouncement(presentation: RealtimeSyncPresentation, hadOutage: boolean) {
   if (presentation.tone === "warning" || presentation.tone === "critical") {
     return {
       hadOutage: true,
@@ -53,11 +46,7 @@ export function getRealtimeSyncPresentation({
   reconnecting,
   status,
 }: RealtimeSyncPresentationOptions): RealtimeSyncPresentation {
-  const transport: RealtimeSyncTransport = fallbackActive
-    ? "fallback"
-    : hasRealtimeEndpoint
-      ? "phoenix"
-      : "none";
+  const transport: RealtimeSyncTransport = fallbackActive ? "fallback" : hasRealtimeEndpoint ? "phoenix" : "none";
 
   if (fallbackActive) {
     return {
@@ -92,8 +81,7 @@ export function getRealtimeSyncPresentation({
 
   if (hasRealtimeEndpoint && status === "degraded" && reconnecting) {
     return {
-      detail:
-        "Phoenix collaboration is unavailable. Roomboard is retrying the session.",
+      detail: "Phoenix collaboration is unavailable. Roomboard is retrying the session.",
       label: "Reconnecting",
       status,
       tone: "warning",

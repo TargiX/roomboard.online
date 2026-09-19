@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { register } from "node:module";
-import type {
-  RoomboardBoardEventInput,
-  RoomboardRealtimeStatus,
-} from "../lib/roomboardRealtime.ts";
+import type { RoomboardBoardEventInput, RoomboardRealtimeStatus } from "../lib/roomboardRealtime.ts";
 
 // Register resolve hooks before importing the module under test so that
 // "phoenix" resolves to the deterministic mock.

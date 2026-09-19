@@ -54,7 +54,9 @@ export function SaasDemoPanel() {
   const [demoSignedIn, setDemoSignedIn] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<DemoPlan["id"]>("team-annual");
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
-  const [message, setMessage] = useState("Demo mode works without cloud keys; real Supabase/Stripe turns on automatically.");
+  const [message, setMessage] = useState(
+    "Demo mode works without cloud keys; real Supabase/Stripe turns on automatically.",
+  );
   const [isBusy, setIsBusy] = useState(false);
 
   const isSignedIn = Boolean(session || demoSignedIn);
@@ -69,16 +71,14 @@ export function SaasDemoPanel() {
 
       const userId = activeSession.user.id;
 
-      await supabase
-        .from("roomboard_profiles")
-        .upsert(
-          {
-            email: activeSession.user.email,
-            full_name: activeSession.user.email?.split("@")[0] ?? "Roomboard user",
-            user_id: userId,
-          },
-          { onConflict: "user_id" },
-        );
+      await supabase.from("roomboard_profiles").upsert(
+        {
+          email: activeSession.user.email,
+          full_name: activeSession.user.email?.split("@")[0] ?? "Roomboard user",
+          user_id: userId,
+        },
+        { onConflict: "user_id" },
+      );
 
       const { data, error } = await supabase
         .from("billing_subscriptions")
@@ -144,7 +144,11 @@ export function SaasDemoPanel() {
         }
 
         setSession(signUp.data.session);
-        setMessage(signUp.data.session ? "Supabase user created and signed in." : "Supabase user created. Confirm email if your project requires it.");
+        setMessage(
+          signUp.data.session
+            ? "Supabase user created and signed in."
+            : "Supabase user created. Confirm email if your project requires it.",
+        );
         return;
       }
 
@@ -236,7 +240,13 @@ export function SaasDemoPanel() {
 
           <form className="lp-saas__form" onSubmit={handleAuth}>
             <input autoComplete="email" onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
-            <input autoComplete="current-password" minLength={6} onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
+            <input
+              autoComplete="current-password"
+              minLength={6}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              value={password}
+            />
             {isSignedIn ? (
               <button onClick={handleSignOut} type="button">
                 <LogOut />
@@ -267,7 +277,12 @@ export function SaasDemoPanel() {
 
           <div className="lp-saas__plans">
             {demoPlans.map((plan) => (
-              <button className={selectedPlan === plan.id ? "active" : ""} key={plan.id} onClick={() => setSelectedPlan(plan.id)} type="button">
+              <button
+                className={selectedPlan === plan.id ? "active" : ""}
+                key={plan.id}
+                onClick={() => setSelectedPlan(plan.id)}
+                type="button"
+              >
                 <span>
                   <strong>{plan.name}</strong>
                   <small>{plan.description}</small>
