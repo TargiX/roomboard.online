@@ -68,8 +68,13 @@ function makeActivity(overrides: Partial<RoomActivity> = {}): RoomActivity {
   };
 }
 
-function makeSnapshot(items: RoomItem[], activities: RoomActivity[] = []): Pick<RoomSnapshot, "activities" | "connections" | "items" | "room"> {
-  const statusCounts = Object.fromEntries(roomItemStatuses.map((status) => [status, 0])) as RoomSnapshot["room"]["statusCounts"];
+function makeSnapshot(
+  items: RoomItem[],
+  activities: RoomActivity[] = [],
+): Pick<RoomSnapshot, "activities" | "connections" | "items" | "room"> {
+  const statusCounts = Object.fromEntries(
+    roomItemStatuses.map((status) => [status, 0]),
+  ) as RoomSnapshot["room"]["statusCounts"];
 
   for (const item of items) {
     statusCounts[item.status] += 1;
@@ -112,12 +117,10 @@ describe("room lifecycle permissions", () => {
     assert.doesNotThrow(() => assertRoomCapacity("items", roomCapacityLimits.items - 1));
     assert.throws(
       () => assertRoomCapacity("items", roomCapacityLimits.items),
-      (error: unknown) => error instanceof Error && error.name === "RoomCapacityError" && /items limit/.test(error.message),
+      (error: unknown) =>
+        error instanceof Error && error.name === "RoomCapacityError" && /items limit/.test(error.message),
     );
-    assert.throws(
-      () => assertRoomCapacity("comments", roomCapacityLimits.comments - 1, 2),
-      /comments limit/,
-    );
+    assert.throws(() => assertRoomCapacity("comments", roomCapacityLimits.comments - 1, 2), /comments limit/);
   });
 
   it("creates rooms as private and invite-only by default", async () => {
@@ -131,11 +134,15 @@ describe("room lifecycle permissions", () => {
     assert.equal(created.room.itemCount, 0);
     assert.equal(await canAccessRoom(roomId), false);
     assert.equal(await canEditRoom(roomId), false);
-    assert.equal((await listRooms()).some((room) => room.id === roomId), false);
+    assert.equal(
+      (await listRooms()).some((room) => room.id === roomId),
+      false,
+    );
     assert.equal(created.room.shareInvite?.role, "editor");
 
-    const ownerListedRoom = (await listRooms({ ownerTokens: { [roomId]: created.ownerToken } }))
-      .find((room) => room.id === roomId);
+    const ownerListedRoom = (await listRooms({ ownerTokens: { [roomId]: created.ownerToken } })).find(
+      (room) => room.id === roomId,
+    );
     assert.ok(ownerListedRoom);
     assert.equal(ownerListedRoom.shareInvite?.role, "editor");
 
@@ -179,16 +186,19 @@ describe("room lifecycle permissions", () => {
 
   it("normalizes untrusted card geometry and colors before persistence", async () => {
     const created = await createRoom(`Bounded card ${Date.now()} ${Math.random().toString(36).slice(2)}`);
-    const item = await createRoomItem({
-      author: "Tester",
-      color: "not-a-color",
-      height: -500,
-      title: "Untrusted geometry",
-      type: "note",
-      width: 999999,
-      x: Number.MAX_SAFE_INTEGER,
-      y: Number.MIN_SAFE_INTEGER,
-    }, created.room.id);
+    const item = await createRoomItem(
+      {
+        author: "Tester",
+        color: "not-a-color",
+        height: -500,
+        title: "Untrusted geometry",
+        type: "note",
+        width: 999999,
+        x: Number.MAX_SAFE_INTEGER,
+        y: Number.MIN_SAFE_INTEGER,
+      },
+      created.room.id,
+    );
 
     assert.equal(item.color, "#48a7ff");
     assert.equal(item.height, 80);
@@ -210,7 +220,10 @@ describe("room lifecycle permissions", () => {
     assert.equal(second.room.visibility, "private");
     assert.equal(first.room.itemCount, 6);
     assert.equal(second.room.itemCount, 6);
-    assert.equal((await listRooms()).some((room) => room.id === first.room.id || room.id === second.room.id), false);
+    assert.equal(
+      (await listRooms()).some((room) => room.id === first.room.id || room.id === second.room.id),
+      false,
+    );
   });
 
   it("keeps sample rooms out of the active room list while direct previews work", async () => {
@@ -220,28 +233,52 @@ describe("room lifecycle permissions", () => {
     const visualDecisionSampleSnapshot = await getRoomSnapshot(VISUAL_DECISION_SAMPLE_ROOM_ID);
 
     for (const sampleRoomId of SAMPLE_ROOM_IDS) {
-      assert.equal(rooms.some((room) => room.id === sampleRoomId), false);
+      assert.equal(
+        rooms.some((room) => room.id === sampleRoomId),
+        false,
+      );
     }
     assert.ok(sampleSnapshot);
     assert.equal(sampleSnapshot.permissions.role, "viewer");
     assert.equal(sampleSnapshot.room.name, "Launch Approval — Decision Complete");
     assert.equal(sampleSnapshot.room.itemCount, 6);
     assert.equal(sampleSnapshot.room.statusCounts.approved, sampleSnapshot.room.itemCount);
-    assert.equal(sampleSnapshot.items.some((item) => item.id === "note-decision-record"), true);
-    assert.equal(sampleSnapshot.items.some((item) => item.body.includes("Ship the focused hero")), true);
-    assert.equal(sampleSnapshot.items.some((item) => item.comments.length > 0), true);
-    assert.equal(sampleSnapshot.items.some((item) => item.body.includes("employer demo")), false);
+    assert.equal(
+      sampleSnapshot.items.some((item) => item.id === "note-decision-record"),
+      true,
+    );
+    assert.equal(
+      sampleSnapshot.items.some((item) => item.body.includes("Ship the focused hero")),
+      true,
+    );
+    assert.equal(
+      sampleSnapshot.items.some((item) => item.comments.length > 0),
+      true,
+    );
+    assert.equal(
+      sampleSnapshot.items.some((item) => item.body.includes("employer demo")),
+      false,
+    );
     assert.ok(moodboardSampleSnapshot);
     assert.equal(moodboardSampleSnapshot.permissions.role, "viewer");
     assert.equal(moodboardSampleSnapshot.room.name, "Moodboard Decision");
     assert.equal(moodboardSampleSnapshot.room.itemCount, 5);
-    assert.equal(moodboardSampleSnapshot.items.some((item) => item.id === "note-direction"), true);
+    assert.equal(
+      moodboardSampleSnapshot.items.some((item) => item.id === "note-direction"),
+      true,
+    );
     assert.ok(visualDecisionSampleSnapshot);
     assert.equal(visualDecisionSampleSnapshot.permissions.role, "viewer");
     assert.equal(visualDecisionSampleSnapshot.room.name, "Visual Decision Room");
     assert.equal(visualDecisionSampleSnapshot.room.itemCount, 5);
-    assert.equal(visualDecisionSampleSnapshot.items.some((item) => item.id === "note-decision"), true);
-    assert.equal(visualDecisionSampleSnapshot.items.some((item) => item.title === "Mockup A" || item.title === "Mockup B"), false);
+    assert.equal(
+      visualDecisionSampleSnapshot.items.some((item) => item.id === "note-decision"),
+      true,
+    );
+    assert.equal(
+      visualDecisionSampleSnapshot.items.some((item) => item.title === "Mockup A" || item.title === "Mockup B"),
+      false,
+    );
   });
 
   it("can create guided starter rooms without making them public", async () => {
@@ -275,25 +312,55 @@ describe("room lifecycle permissions", () => {
       assert.equal(created.room.visibility, "private");
       assert.equal(created.room.itemCount, starter.itemCount);
       assert.equal(created.room.connectionCount, starter.connectionCount);
-      assert.equal((await listRooms()).some((room) => room.id === roomId), false);
+      assert.equal(
+        (await listRooms()).some((room) => room.id === roomId),
+        false,
+      );
 
       const ownerSnapshot = await getRoomSnapshot(roomId, { ownerToken: created.ownerToken });
       assert.ok(ownerSnapshot);
       assert.equal(ownerSnapshot.permissions.role, "owner");
       for (const itemId of starter.expectedItemIds) {
-        assert.equal(ownerSnapshot.items.some((item) => item.id === itemId), true);
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.id === itemId),
+          true,
+        );
       }
       if (starter.template === "visual-decision") {
-        assert.equal(ownerSnapshot.items.every((item) => item.author === "Roomboard"), true);
-        assert.equal(ownerSnapshot.items.some((item) => item.type === "image"), false);
-        assert.equal(ownerSnapshot.items.some((item) => item.comments.length > 0), false);
+        assert.equal(
+          ownerSnapshot.items.every((item) => item.author === "Roomboard"),
+          true,
+        );
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.type === "image"),
+          false,
+        );
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.comments.length > 0),
+          false,
+        );
       }
       if (starter.template === "landing-review") {
-        assert.equal(ownerSnapshot.items.every((item) => item.author === "Roomboard"), true);
-        assert.equal(ownerSnapshot.items.every((item) => item.comments.length === 0), true);
-        assert.equal(ownerSnapshot.items.some((item) => item.id === "note-visual-material"), true);
-        assert.equal(ownerSnapshot.items.some((item) => item.id === "note-decision-record"), true);
-        assert.equal(ownerSnapshot.items.some((item) => item.type === "image"), false);
+        assert.equal(
+          ownerSnapshot.items.every((item) => item.author === "Roomboard"),
+          true,
+        );
+        assert.equal(
+          ownerSnapshot.items.every((item) => item.comments.length === 0),
+          true,
+        );
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.id === "note-visual-material"),
+          true,
+        );
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.id === "note-decision-record"),
+          true,
+        );
+        assert.equal(
+          ownerSnapshot.items.some((item) => item.type === "image"),
+          false,
+        );
       }
     }
   });
@@ -305,8 +372,14 @@ describe("room lifecycle permissions", () => {
     const ownerSnapshot = await getRoomSnapshot(roomId, { ownerToken: created.ownerToken });
 
     assert.ok(ownerSnapshot?.inviteTokens?.editor);
-    assert.equal((await listRooms()).some((room) => room.id === roomId), false);
-    assert.equal((await listRooms({ inviteTokens: { [roomId]: "bad-token" } })).some((room) => room.id === roomId), false);
+    assert.equal(
+      (await listRooms()).some((room) => room.id === roomId),
+      false,
+    );
+    assert.equal(
+      (await listRooms({ inviteTokens: { [roomId]: "bad-token" } })).some((room) => room.id === roomId),
+      false,
+    );
     const joinedRooms = await listRooms({ inviteTokens: { [roomId]: ownerSnapshot.inviteTokens.editor } });
     const joinedRoom = joinedRooms.find((room) => room.id === roomId);
     assert.ok(joinedRoom);
@@ -322,13 +395,22 @@ describe("room lifecycle permissions", () => {
     assert.equal(created.room.visibility, "private");
     assert.equal(created.room.itemCount, 5);
     assert.equal(created.room.connectionCount, 3);
-    assert.equal((await listRooms()).some((room) => room.id === roomId), false);
+    assert.equal(
+      (await listRooms()).some((room) => room.id === roomId),
+      false,
+    );
 
     const ownerSnapshot = await getRoomSnapshot(roomId, { ownerToken: created.ownerToken });
     assert.ok(ownerSnapshot);
     assert.equal(ownerSnapshot.permissions.role, "owner");
-    assert.equal(ownerSnapshot.items.some((item) => item.title === "Direction"), true);
-    assert.equal(ownerSnapshot.items.some((item) => item.title === "Reference A"), true);
+    assert.equal(
+      ownerSnapshot.items.some((item) => item.title === "Direction"),
+      true,
+    );
+    assert.equal(
+      ownerSnapshot.items.some((item) => item.title === "Reference A"),
+      true,
+    );
   });
 
   it("lists rooms joined from remembered invite tokens", async () => {
@@ -338,10 +420,18 @@ describe("room lifecycle permissions", () => {
     const ownerSnapshot = await getRoomSnapshot(roomId, { ownerToken: created.ownerToken });
 
     assert.ok(ownerSnapshot?.inviteTokens?.editor);
-    assert.equal((await listRooms()).some((room) => room.id === roomId), false);
-    assert.equal((await listRooms({ inviteTokens: { [roomId]: "bad-token" } })).some((room) => room.id === roomId), false);
     assert.equal(
-      (await listRooms({ inviteTokens: { [roomId]: ownerSnapshot.inviteTokens.editor } })).some((room) => room.id === roomId),
+      (await listRooms()).some((room) => room.id === roomId),
+      false,
+    );
+    assert.equal(
+      (await listRooms({ inviteTokens: { [roomId]: "bad-token" } })).some((room) => room.id === roomId),
+      false,
+    );
+    assert.equal(
+      (await listRooms({ inviteTokens: { [roomId]: ownerSnapshot.inviteTokens.editor } })).some(
+        (room) => room.id === roomId,
+      ),
       true,
     );
   });
@@ -400,7 +490,10 @@ describe("room lifecycle permissions", () => {
     assert.equal(closed?.id, roomId);
     assert.equal(await getRoomSnapshot(roomId, ownerCredentials), null);
     assert.equal(await canAccessRoom(roomId, ownerCredentials), false);
-    assert.equal((await listRooms()).some((room) => room.id === roomId), false);
+    assert.equal(
+      (await listRooms()).some((room) => room.id === roomId),
+      false,
+    );
   });
 
   it("lets only the owner publish and revoke a public read-only snapshot without opening the live room", async () => {
@@ -499,7 +592,12 @@ describe("room lifecycle permissions", () => {
     assert.equal(duplicated.y, source.y + 40);
     assert.deepEqual(duplicated.comments, []);
     assert.equal(snapshot?.items.filter((item) => item.id === source.id || item.id === duplicated.id).length, 2);
-    assert.equal(snapshot?.activities.some((activity) => activity.itemId === duplicated.id && activity.message === 'Duplicated "Homepage direction".'), true);
+    assert.equal(
+      snapshot?.activities.some(
+        (activity) => activity.itemId === duplicated.id && activity.message === 'Duplicated "Homepage direction".',
+      ),
+      true,
+    );
   });
 });
 
@@ -532,7 +630,12 @@ describe("buildRoomRecap", () => {
       makeItem({ id: "changes-note", status: "changes_requested", title: "Revise copy" }),
     ];
 
-    const recap = buildRoomRecap(makeSnapshot(items, [makeActivity({ createdAt: updatedAt - 100 }), makeActivity({ id: "activity-2", createdAt: updatedAt })]));
+    const recap = buildRoomRecap(
+      makeSnapshot(items, [
+        makeActivity({ createdAt: updatedAt - 100 }),
+        makeActivity({ id: "activity-2", createdAt: updatedAt }),
+      ]),
+    );
 
     assert.equal(recap.roomId, "review-room");
     assert.equal(recap.totalItems, 3);
@@ -552,7 +655,10 @@ describe("buildRoomRecap", () => {
       ],
     );
     assert.equal(recap.sections[2].items[0].source, "example.com");
-    assert.deepEqual(recap.recentActivities.map((activity) => activity.id), ["activity-2", "activity-1"]);
+    assert.deepEqual(
+      recap.recentActivities.map((activity) => activity.id),
+      ["activity-2", "activity-1"],
+    );
     assert.match(recap.markdown, /Progress: 2\/3 cards decided, 1 unresolved/);
     assert.match(recap.markdown, /- Reference mood .*source: example\.com/);
   });
@@ -566,10 +672,7 @@ describe("buildRoomRecap", () => {
       assert.fail("expected the approved decision to appear in markdown");
     }
 
-    assert.ok(
-      decisionLine.length < 190,
-      `expected compact decision line, got ${decisionLine.length} chars`,
-    );
+    assert.ok(decisionLine.length < 190, `expected compact decision line, got ${decisionLine.length} chars`);
     assert.match(decisionLine, /\.\.\./);
     assert.doesNotMatch(decisionLine, /\s{2,}/);
   });
@@ -593,7 +696,10 @@ describe("buildRoomDecisionBrief", () => {
       status: "changes_requested",
       title: "Revise headline",
     });
-    assert.deepEqual(brief.nextSteps.map((item) => item.id), ["revisions", "review", "open"]);
+    assert.deepEqual(
+      brief.nextSteps.map((item) => item.id),
+      ["revisions", "review", "open"],
+    );
   });
 
   it("marks an all-approved board as ready to share", () => {
@@ -686,13 +792,48 @@ describe("getProfileJoinCopy", () => {
 
   it("toggles decision signals by stable editor identity and exports them in the recap", async () => {
     const created = await createRoom(`Decision signal ${Date.now()} ${Math.random().toString(36).slice(2)}`);
-    const item = await createRoomItem({ author: "Ilya", body: "Choose the launch direction", color: "#facc5c", title: "Concept A", type: "note" }, created.room.id);
+    const item = await createRoomItem(
+      { author: "Ilya", body: "Choose the launch direction", color: "#facc5c", title: "Concept A", type: "note" },
+      created.room.id,
+    );
 
     assert.ok(item);
-    assert.equal((await toggleRoomItemDecisionSignal({ color: "#48a7ff", itemId: item.id, voter: "Nora", voterId: "editor-nora" }, created.room.id))?.decisionSignals?.length, 1);
-    assert.equal((await toggleRoomItemDecisionSignal({ color: "#facc5c", itemId: item.id, voter: "Nora", voterId: "editor-river" }, created.room.id))?.decisionSignals?.length, 2);
-    assert.equal((await toggleRoomItemDecisionSignal({ color: "#48a7ff", itemId: item.id, voter: "Nora renamed", voterId: "editor-nora" }, created.room.id))?.decisionSignals?.length, 1);
-    assert.equal((await toggleRoomItemDecisionSignal({ color: "#48a7ff", itemId: item.id, voter: "Nora renamed", voterId: "editor-nora" }, created.room.id))?.decisionSignals?.length, 2);
+    assert.equal(
+      (
+        await toggleRoomItemDecisionSignal(
+          { color: "#48a7ff", itemId: item.id, voter: "Nora", voterId: "editor-nora" },
+          created.room.id,
+        )
+      )?.decisionSignals?.length,
+      1,
+    );
+    assert.equal(
+      (
+        await toggleRoomItemDecisionSignal(
+          { color: "#facc5c", itemId: item.id, voter: "Nora", voterId: "editor-river" },
+          created.room.id,
+        )
+      )?.decisionSignals?.length,
+      2,
+    );
+    assert.equal(
+      (
+        await toggleRoomItemDecisionSignal(
+          { color: "#48a7ff", itemId: item.id, voter: "Nora renamed", voterId: "editor-nora" },
+          created.room.id,
+        )
+      )?.decisionSignals?.length,
+      1,
+    );
+    assert.equal(
+      (
+        await toggleRoomItemDecisionSignal(
+          { color: "#48a7ff", itemId: item.id, voter: "Nora renamed", voterId: "editor-nora" },
+          created.room.id,
+        )
+      )?.decisionSignals?.length,
+      2,
+    );
 
     const snapshot = await getRoomSnapshot(created.room.id, { ownerToken: created.ownerToken });
     assert.ok(snapshot);
@@ -709,7 +850,8 @@ describe("mutating a room that is already gone", () => {
     assert.ok(await closeRoom(roomId, ownerCredentials));
 
     await assert.rejects(
-      () => createRoomItem({ author: "Ilya", body: "Late write", color: "#48a7ff", title: "Late", type: "note" }, roomId),
+      () =>
+        createRoomItem({ author: "Ilya", body: "Late write", color: "#48a7ff", title: "Late", type: "note" }, roomId),
       (error: unknown) => {
         assert.ok(isRoomNotFoundError(error), "expected the closed-room write to raise RoomNotFoundError");
         assert.equal((error as RoomNotFoundError).roomId, roomId);
@@ -721,6 +863,6 @@ describe("mutating a room that is already gone", () => {
   it("keeps unrelated failures out of the not-found path", () => {
     assert.equal(isRoomNotFoundError(new Error("Supabase unreachable")), false);
     assert.equal(isRoomNotFoundError(null), false);
-    assert.equal(isRoomNotFoundError("Room \"x\" not found."), false);
+    assert.equal(isRoomNotFoundError('Room "x" not found.'), false);
   });
 });

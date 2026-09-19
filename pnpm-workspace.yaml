@@ -4,3 +4,6 @@ allowBuilds:
   # banner. Declining it keeps pnpm 11 from failing the install on an
   # undeclared build script.
   core-js: false
+  # eslint-plugin-import-x's native resolver; its postinstall links the
+  # platform binary. Required for `pnpm lint`.
+  unrs-resolver: true

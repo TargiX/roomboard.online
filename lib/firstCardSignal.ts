@@ -41,10 +41,13 @@ export function recordAuthoredFirstCard(roomId: string, storage = getBrowserStor
   }
 
   try {
-    storage.setItem(authoredFirstCardKey, JSON.stringify({
-      ...readAuthoredRooms(storage),
-      [roomId]: true,
-    }));
+    storage.setItem(
+      authoredFirstCardKey,
+      JSON.stringify({
+        ...readAuthoredRooms(storage),
+        [roomId]: true,
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -56,7 +59,11 @@ export function recordAuthoredFirstCard(roomId: string, storage = getBrowserStor
  * once per mount rather than never, so the funnel degrades to over-reporting
  * instead of silently losing its activation step.
  */
-export function resolveFirstCardEventName(roomId: string, alreadyAuthoredInSession: boolean, storage = getBrowserStorage()) {
+export function resolveFirstCardEventName(
+  roomId: string,
+  alreadyAuthoredInSession: boolean,
+  storage = getBrowserStorage(),
+) {
   if (alreadyAuthoredInSession || hasAuthoredFirstCard(roomId, storage)) {
     return "Room Card Created";
   }

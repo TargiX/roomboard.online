@@ -216,7 +216,9 @@ try {
     throw new Error(`Realtime smoke errors:\n${errors.join("\n")}`);
   }
 
-  console.log("Realtime smoke passed: Phoenix presence and board fanout work, then local fallback continues after Phoenix stops.");
+  console.log(
+    "Realtime smoke passed: Phoenix presence and board fanout work, then local fallback continues after Phoenix stops.",
+  );
 } finally {
   for (const child of children) {
     stopChild(child);

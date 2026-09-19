@@ -22,7 +22,7 @@ export type BillingProfileRow = {
 
 /** Stripe ids arrive either as strings or as expanded customer objects. */
 export function resolveStripeObjectId(value: string | Stripe.Customer | Stripe.DeletedCustomer | null) {
-  return typeof value === "string" ? value : value?.id ?? null;
+  return typeof value === "string" ? value : (value?.id ?? null);
 }
 
 /**

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { canAccessRoom, type RoomCredentials } from "@/lib/canvasRoom";
 import { createPresenceStream, publishPresence, removePresence, type PresenceSnapshot } from "@/lib/presence";
 import { readJsonBody } from "@/lib/requestJson";
-import { checkRateLimit, getRequestClientKey } from "@/lib/requestRateLimit";
+import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
 import {
   isServerRealtimeFallbackAllowed,
   serverRealtimeFallbackDisabledBody,
@@ -73,7 +73,7 @@ export async function POST(request: Request, { params }: PresenceRouteProps) {
     return NextResponse.json({ error: "Invalid presence payload" }, { status: 400 });
   }
 
-  const rateLimit = checkRateLimit(
+  const rateLimit = await checkRateLimitDistributed(
     `presence:${roomId}:${getRequestClientKey(request)}`,
     PRESENCE_FALLBACK_LIMIT_PER_HOUR,
     60 * 60 * 1000,

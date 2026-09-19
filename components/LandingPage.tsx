@@ -7,10 +7,10 @@ import { LandingLower } from "./LandingLower";
 import { captureCampaignAttribution, trackProductEvent } from "@/lib/productAnalytics";
 import { prewarmRealtimeEndpoint } from "@/lib/realtimePrewarm";
 import { buildRoomPathWithHashToken, normalizeRoomRouteFromInput } from "@/lib/roomLinks";
+import { readInviteTokens, readOwnerTokens, writeOwnerToken } from "@/lib/roomTokens";
 
 type LandingPageProps = {
   entryIntent?: StarterId | "general";
-  initialRooms: RoomSummary[];
   initialStarter?: StarterId;
 };
 
@@ -83,10 +83,6 @@ const previewActivityFrames: PreviewActivityFrame[] = [
   },
 ];
 
-const ownerTokensKey = "roomboard-owner-tokens";
-const inviteTokensKey = "roomboard-invite-tokens";
-const defaultOwnerTokens: Record<string, string> = {};
-const defaultInviteTokens: Record<string, string> = {};
 const sampleRoomPathByStarter: Record<StarterId, string> = {
   blank: "/rooms/sample-visual-decision-room",
   "landing-review": "/rooms/pitch-deck-review",
@@ -115,7 +111,8 @@ const starterOptions: StarterOption[] = [
     name: "Launch approval",
     note: "Material → review → decision",
     cta: "Start launch approval",
-    outcome: "A clean launch approval room with prompts for the decision, real material, approval criteria, and the final decision record.",
+    outcome:
+      "A clean launch approval room with prompts for the decision, real material, approval criteria, and the final decision record.",
     promise: "Best when a page or campaign is nearly ready and one clear call is blocking launch.",
     seeded: true,
   },
@@ -140,23 +137,28 @@ const starterOptions: StarterOption[] = [
     seeded: false,
   },
 ];
-const heroCopyByIntent: Record<StarterId | "general", {
-  leadLine1: string;
-  leadLine2: string;
-  signal: string;
-  titleLine1: string;
-  titleLine2: string;
-}> = {
+const heroCopyByIntent: Record<
+  StarterId | "general",
+  {
+    leadLine1: string;
+    leadLine2: string;
+    signal: string;
+    titleLine1: string;
+    titleLine2: string;
+  }
+> = {
   general: {
     leadLine1: "Put the real launch material in one private room and invite the people who need to approve it.",
-    leadLine2: "Collect approve-or-change calls beside the work, then close with a decision record everyone can follow.",
+    leadLine2:
+      "Collect approve-or-change calls beside the work, then close with a decision record everyone can follow.",
     signal: "Launch Approval Room",
     titleLine1: "Get the launch decision.",
     titleLine2: "Without the screenshot thread.",
   },
   "landing-review": {
     leadLine1: "Start with a clean approval template for the decision, launch material, criteria, and final record.",
-    leadLine2: "Invite one reviewer, keep every call attached to the work, and close the room when the launch is decided.",
+    leadLine2:
+      "Invite one reviewer, keep every call attached to the work, and close the room when the launch is decided.",
     signal: "Private Launch Approval",
     titleLine1: "Decide what ships.",
     titleLine2: "Then close the loop.",
@@ -209,27 +211,51 @@ const useCaseOptions: Array<{
     cta: "Start blank room",
   },
 ];
-const previewBoardCopy: Record<StarterId, {
-  boardTitle: string;
-  decision: string;
-  sticky: string;
-  cards: Record<PreviewCardId, {
-    body: string;
-    color: PreviewColor;
-    img?: string;
-    title: string;
-    type: "image" | "note";
-  }>;
-}> = {
+const previewBoardCopy: Record<
+  StarterId,
+  {
+    boardTitle: string;
+    decision: string;
+    sticky: string;
+    cards: Record<
+      PreviewCardId,
+      {
+        body: string;
+        color: PreviewColor;
+        img?: string;
+        title: string;
+        type: "image" | "note";
+      }
+    >;
+  }
+> = {
   "landing-review": {
     boardTitle: "Launch Approval",
     decision: "Hero approved",
     sticky: "Ship the focused version",
     cards: {
-      a: { type: "image", color: "blue", title: "Option A", body: "Landing v2", img: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=460&q=70" },
+      a: {
+        type: "image",
+        color: "blue",
+        title: "Option A",
+        body: "Landing v2",
+        img: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=460&q=70",
+      },
       b: { type: "note", color: "rose", title: "@Sarah", body: "Love the new headline" },
-      c: { type: "image", color: "violet", title: "Moodboard", body: "Brand explorations", img: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=420&q=70" },
-      d: { type: "image", color: "green", title: "Option B", body: "Landing v3", img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70" },
+      c: {
+        type: "image",
+        color: "violet",
+        title: "Moodboard",
+        body: "Brand explorations",
+        img: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=420&q=70",
+      },
+      d: {
+        type: "image",
+        color: "green",
+        title: "Option B",
+        body: "Landing v3",
+        img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70",
+      },
       e: { type: "note", color: "green", title: "@Tom", body: "This layout is more scannable" },
     },
   },
@@ -238,9 +264,21 @@ const previewBoardCopy: Record<StarterId, {
     decision: "Direction A",
     sticky: "Keep the palette warmer",
     cards: {
-      a: { type: "image", color: "amber", title: "Reference A", body: "Warm editorial", img: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=460&q=70" },
+      a: {
+        type: "image",
+        color: "amber",
+        title: "Reference A",
+        body: "Warm editorial",
+        img: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=460&q=70",
+      },
       b: { type: "note", color: "rose", title: "@Nora", body: "A feels more ownable" },
-      c: { type: "image", color: "violet", title: "Reference B", body: "Sharper product-led", img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70" },
+      c: {
+        type: "image",
+        color: "violet",
+        title: "Reference B",
+        body: "Sharper product-led",
+        img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70",
+      },
       d: { type: "note", color: "green", title: "Criteria", body: "Recognizable first screen" },
       e: { type: "note", color: "blue", title: "Next step", body: "Upload the next mockup" },
     },
@@ -251,7 +289,13 @@ const previewBoardCopy: Record<StarterId, {
     sticky: "Make the call in one room",
     cards: {
       a: { type: "note", color: "blue", title: "Question", body: "What should we decide?" },
-      b: { type: "image", color: "rose", title: "Mockup", body: "Option A", img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70" },
+      b: {
+        type: "image",
+        color: "rose",
+        title: "Mockup",
+        body: "Option A",
+        img: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=420&q=70",
+      },
       c: { type: "note", color: "violet", title: "Invite", body: "Copy a ready message" },
       d: { type: "note", color: "green", title: "Viewer link", body: "Read-only decision" },
       e: { type: "note", color: "amber", title: "Status", body: "Open / reviewing / approved" },
@@ -324,49 +368,6 @@ const LIcon = {
     </svg>
   ),
 };
-
-function readOwnerTokens() {
-  if (typeof window === "undefined") {
-    return defaultOwnerTokens;
-  }
-
-  try {
-    return {
-      ...defaultOwnerTokens,
-      ...(JSON.parse(localStorage.getItem(ownerTokensKey) ?? "{}") as Record<string, string>),
-    };
-  } catch {
-    return defaultOwnerTokens;
-  }
-}
-
-function readInviteTokens() {
-  if (typeof window === "undefined") {
-    return defaultInviteTokens;
-  }
-
-  try {
-    return {
-      ...defaultInviteTokens,
-      ...(JSON.parse(localStorage.getItem(inviteTokensKey) ?? "{}") as Record<string, string>),
-    };
-  } catch {
-    return defaultInviteTokens;
-  }
-}
-
-function writeOwnerToken(roomId: string, ownerToken: string) {
-  const tokens = readOwnerTokens();
-  tokens[roomId] = ownerToken;
-
-  try {
-    localStorage.setItem(ownerTokensKey, JSON.stringify(tokens));
-  } catch {
-    // The first room URL also carries the owner token, so room access still works.
-  }
-
-  return tokens;
-}
 
 function slugInput(value: string) {
   return value
@@ -463,7 +464,16 @@ function makePreviewItems(room: RoomSummary): MiniPreviewItem[] {
   return [
     { color: "amber", key: `${room.id}-a`, left: 6, status: "approved", top: 10, type: "note", width: 26, height: 28 },
     { color: "blue", key: `${room.id}-b`, left: 40, status: "reviewing", top: 8, type: "image", width: 36, height: 50 },
-    { color: "rose", key: `${room.id}-c`, left: 8, status: "changes_requested", top: 50, type: "note", width: 24, height: 32 },
+    {
+      color: "rose",
+      key: `${room.id}-c`,
+      left: 8,
+      status: "changes_requested",
+      top: 50,
+      type: "note",
+      width: 24,
+      height: 32,
+    },
     { color: "green", key: `${room.id}-d`, left: 80, status: "open", top: 60, type: "note", width: 16, height: 22 },
   ];
 }
@@ -550,32 +560,50 @@ function PreviewBoard({ starterId }: { starterId: StarterId }) {
     {
       color: "purple",
       d: "M 13.6 33.4 C 7.8 33.4, 7.7 47.4, 13.2 52.7 C 15.5 55.2, 15.2 58.8, 13.8 59.7",
-      dots: [{ x: 13.6, y: 33.4 }, { x: 13.8, y: 59.7 }],
+      dots: [
+        { x: 13.6, y: 33.4 },
+        { x: 13.8, y: 59.7 },
+      ],
     },
     {
       color: "purple",
       d: "M 33.6 16.4 C 37.8 16.4, 37.0 25.3, 47.9 25.3",
-      dots: [{ x: 33.6, y: 16.4 }, { x: 47.9, y: 25.3 }],
+      dots: [
+        { x: 33.6, y: 16.4 },
+        { x: 47.9, y: 25.3 },
+      ],
     },
     {
       color: "purple",
       d: "M 47.9 25.3 C 52.0 31.2, 56.6 31.2, 60.8 24.3",
-      dots: [{ x: 47.9, y: 25.3 }, { x: 60.8, y: 24.3 }],
+      dots: [
+        { x: 47.9, y: 25.3 },
+        { x: 60.8, y: 24.3 },
+      ],
     },
     {
       color: "purple",
       d: "M 78.5 29.9 C 80.5 29.9, 80.1 34.0, 82.3 34.0",
-      dots: [{ x: 78.5, y: 29.9 }, { x: 82.3, y: 34.0 }],
+      dots: [
+        { x: 78.5, y: 29.9 },
+        { x: 82.3, y: 34.0 },
+      ],
     },
     {
       color: "blue",
       d: "M 67.0 68.1 C 75.2 69.6, 75.7 49.2, 82.3 49.2",
-      dots: [{ x: 67.0, y: 68.1 }, { x: 82.3, y: 49.2 }],
+      dots: [
+        { x: 67.0, y: 68.1 },
+        { x: 82.3, y: 49.2 },
+      ],
     },
     {
       color: "green",
       d: "M 29.0 67.9 C 35.5 67.9, 40.8 73.8, 48.8 72.0",
-      dots: [{ x: 29.0, y: 67.9 }, { x: 48.8, y: 72.0 }],
+      dots: [
+        { x: 29.0, y: 67.9 },
+        { x: 48.8, y: 72.0 },
+      ],
     },
   ];
 
@@ -638,15 +666,12 @@ function PreviewBoard({ starterId }: { starterId: StarterId }) {
             className={`lp-preview__card card-${card.id} color-${card.color} ${card.type === "image" ? "image" : ""} ${card.isActive ? "is-active" : ""}`}
             style={{ left: `${card.left}%`, top: `${card.top}%`, width: `${card.width}%` }}
           >
-
             <div className="head">
               <span className="typedot" style={{ background: `var(--note-${card.color}-stripe)` }} />
               {card.title}
               <span className="id">#{card.id_}</span>
             </div>
-            <div className="title">
-              {card.type === "image" ? card.body : card.body}
-            </div>
+            <div className="title">{card.type === "image" ? card.body : card.body}</div>
             {card.type === "image" ? (
               <div className="media">
                 <img src={card.img} alt={card.title} />
@@ -684,7 +709,9 @@ function PreviewBoard({ starterId }: { starterId: StarterId }) {
         <div className="lp-preview__decision">
           <div>Decision</div>
           <strong>{preview.decision}</strong>
-          <span><LIcon.Lock /> Decision locked</span>
+          <span>
+            <LIcon.Lock /> Decision locked
+          </span>
           <div className="mini-avatars">
             {["#ef6b7a", "#ffd166", "#4ec18a", "#62a9ff", "#9b7bd9"].map((color, index) => (
               <i key={color} style={{ background: color, marginLeft: index === 0 ? 0 : -5 }} />
@@ -806,13 +833,17 @@ function RoomCard({ room, onOpen }: { room: RoomSummary; onOpen: (roomId: string
               top: `${item.top}%`,
               width: `${item.width}%`,
             }}
-          >
-
-          </div>
+          ></div>
         ))}
         <div className={`lp-room__live ${room.access === "locked" ? "locked" : ""}`}>
           <span className="dot" />
-          {room.visibility === "private" ? "Private" : room.access === "locked" ? "Locked" : room.liveCount > 0 ? `${room.liveCount} live` : "Idle"}
+          {room.visibility === "private"
+            ? "Private"
+            : room.access === "locked"
+              ? "Locked"
+              : room.liveCount > 0
+                ? `${room.liveCount} live`
+                : "Idle"}
         </div>
       </div>
       <div className="lp-room__body">
@@ -827,8 +858,12 @@ function RoomCard({ room, onOpen }: { room: RoomSummary; onOpen: (roomId: string
           <span>{formatRelativeTime(room.updatedAt)}</span>
         </div>
         <div className="lp-room__review" aria-label={`${progress.decided} of ${progress.total} cards decided`}>
-          <span className="bar"><span style={{ width: `${progress.percent}%` }} /></span>
-          <span>{progress.decided}/{progress.total || 0} decided</span>
+          <span className="bar">
+            <span style={{ width: `${progress.percent}%` }} />
+          </span>
+          <span>
+            {progress.decided}/{progress.total || 0} decided
+          </span>
         </div>
       </div>
       <div className="lp-room__foot">
@@ -847,12 +882,12 @@ function RoomCard({ room, onOpen }: { room: RoomSummary; onOpen: (roomId: string
   );
 }
 
-export function LandingPage({ entryIntent = "general", initialRooms, initialStarter = "landing-review" }: LandingPageProps) {
+export function LandingPage({ entryIntent = "general", initialStarter = "landing-review" }: LandingPageProps) {
   const router = useRouter();
-  const [rooms, setRooms] = useState(initialRooms);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [tab, setTab] = useState<RoomTab>("all");
-  const [inviteTokens, setInviteTokens] = useState<Record<string, string>>(defaultInviteTokens);
-  const [ownerTokens, setOwnerTokens] = useState<Record<string, string>>(defaultOwnerTokens);
+  const [inviteTokens, setInviteTokens] = useState<Record<string, string>>({});
+  const [ownerTokens, setOwnerTokens] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [inviteLink, setInviteLink] = useState("");
@@ -944,7 +979,8 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
       }
 
       const starter = getStarterOption(starterId);
-      const shouldUseGuidedGeneralStarter = entryIntent === "general" && starter.id === "blank" && (source === "hero" || source === "nav");
+      const shouldUseGuidedGeneralStarter =
+        entryIntent === "general" && starter.id === "blank" && (source === "hero" || source === "nav");
       let roomStarterTemplate: RoomCreateStarterTemplate | undefined;
 
       if (shouldUseGuidedGeneralStarter) {
@@ -970,9 +1006,11 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
 
         if (!response.ok) {
           const isRateLimited = response.status === 429;
-          setCreateError(isRateLimited
-            ? "Room creation is temporarily rate limited. Try again in a little while."
-            : "Roomboard could not open a room. Please try again.");
+          setCreateError(
+            isRateLimited
+              ? "Room creation is temporarily rate limited. Try again in a little while."
+              : "Roomboard could not open a room. Please try again.",
+          );
           trackProductEvent("Room Create Failed", {
             reason: isRateLimited ? "rate_limited" : "bad_response",
             source,
@@ -994,10 +1032,12 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
           });
           setOwnerTokens(writeOwnerToken(data.room.id, data.ownerToken));
           setRooms((current) => [data.room!, ...current.filter((room) => room.id !== data.room!.id)]);
-          router.push(buildRoomPathWithHashToken(data.room.id, "ownerToken", data.ownerToken, {
-            new: "1",
-            starter: trackedStarter,
-          }));
+          router.push(
+            buildRoomPathWithHashToken(data.room.id, "ownerToken", data.ownerToken, {
+              new: "1",
+              starter: trackedStarter,
+            }),
+          );
         } else {
           setCreateError("Roomboard opened a response without a room. Please try again.");
           trackProductEvent("Room Create Failed", { reason: "missing_room", source, starter: trackedStarter });
@@ -1017,20 +1057,23 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
     router.push(sampleRoomPathByStarter[selectedStarter]);
   }, [router, selectedStarter]);
 
-  const openInviteLink = useCallback((event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const route = normalizeRoomRouteFromInput(inviteLink);
+  const openInviteLink = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const route = normalizeRoomRouteFromInput(inviteLink);
 
-    if (!route) {
-      setInviteLinkError("Paste a Roomboard room link or room id.");
-      trackProductEvent("Room Invite Open Failed", { reason: "invalid_input", source: "landing_hero" });
-      return;
-    }
+      if (!route) {
+        setInviteLinkError("Paste a Roomboard room link or room id.");
+        trackProductEvent("Room Invite Open Failed", { reason: "invalid_input", source: "landing_hero" });
+        return;
+      }
 
-    setInviteLinkError("");
-    trackProductEvent("Room Invite Opened", { source: "landing_hero" });
-    router.push(route);
-  }, [inviteLink, router]);
+      setInviteLinkError("");
+      trackProductEvent("Room Invite Opened", { source: "landing_hero" });
+      router.push(route);
+    },
+    [inviteLink, router],
+  );
 
   const visibleRooms = useMemo(() => {
     return rooms.filter((room) => {
@@ -1076,7 +1119,12 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
           <a className="lp-nav__login" href="/rooms">
             My rooms
           </a>
-          <button className="lp-nav__cta" disabled={isCreating} onClick={() => void openRoom(undefined, "nav")} type="button">
+          <button
+            className="lp-nav__cta"
+            disabled={isCreating}
+            onClick={() => void openRoom(undefined, "nav")}
+            type="button"
+          >
             Start launch approval
           </button>
         </div>
@@ -1085,9 +1133,7 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
       <main>
         <section className="lp-hero">
           <div className="lp-shell lp-hero__inner">
-            <div className="lp-hero__signal">
-              {heroCopy.signal}
-            </div>
+            <div className="lp-hero__signal">{heroCopy.signal}</div>
             <h1>
               {heroCopy.titleLine1}
               <br />
@@ -1100,16 +1146,16 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
             </p>
 
             <div className="lp-hero__actions">
-              <button className="lp-cta__cta" disabled={isCreating} onClick={() => void openRoom(undefined, "hero")} type="button">
+              <button
+                className="lp-cta__cta"
+                disabled={isCreating}
+                onClick={() => void openRoom(undefined, "hero")}
+                type="button"
+              >
                 {isCreating ? "Opening" : primaryCtaLabel}
                 <LIcon.Arrow />
               </button>
-              <button
-                className="lp-demo-cta"
-                disabled={isCreating}
-                onClick={openDemoRoom}
-                type="button"
-              >
+              <button className="lp-demo-cta" disabled={isCreating} onClick={openDemoRoom} type="button">
                 {sampleRoomCtaByStarter[selectedStarter]}
               </button>
             </div>
@@ -1137,7 +1183,6 @@ export function LandingPage({ entryIntent = "general", initialRooms, initialStar
               </p>
             )}
             <PreviewBoard starterId={heroPreviewStarter} />
-
           </div>
         </section>
 

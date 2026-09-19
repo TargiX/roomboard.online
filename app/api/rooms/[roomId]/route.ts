@@ -21,6 +21,7 @@ import {
   reverseRoomConnection,
   roomItemStatuses,
   setRoomAccess,
+  setRoomInviteExpiry,
   setRoomSnapshotPublic,
   setRoomVisibility,
   updateRoomItem,
@@ -37,7 +38,7 @@ import {
   isServerRealtimeFallbackAllowed,
   serverRealtimeFallbackStreamDisabledInit,
 } from "@/lib/serverRealtimeFallback";
-import { checkRateLimit, getRequestClientKey } from "@/lib/requestRateLimit";
+import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
 import { readJsonBody } from "@/lib/requestJson";
 import { withRoomNotFoundAs404 } from "@/lib/roomRouteErrors";
 
@@ -68,8 +69,12 @@ function isRoomItemStatus(value: unknown): value is RoomItemStatus {
   return typeof value === "string" && roomItemStatuses.includes(value as RoomItemStatus);
 }
 
-function checkRoomWriteRateLimit(request: Request, roomId: string, kind: string, limit: number) {
-  const rateLimit = checkRateLimit(`rooms:${kind}:${roomId}:${getRequestClientKey(request)}`, limit, 60 * 60 * 1000);
+async function checkRoomWriteRateLimit(request: Request, roomId: string, kind: string, limit: number) {
+  const rateLimit = await checkRateLimitDistributed(
+    `rooms:${kind}:${roomId}:${getRequestClientKey(request)}`,
+    limit,
+    60 * 60 * 1000,
+  );
 
   if (rateLimit.allowed) {
     return null;
@@ -135,11 +140,19 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
     return NextResponse.json({ error: "Editor access is required." }, { status: 403 });
   }
 
-  const limited = checkRoomWriteRateLimit(request, roomId, "mutation", ROOM_MUTATION_LIMIT_PER_HOUR);
+  const limited = await checkRoomWriteRateLimit(request, roomId, "mutation", ROOM_MUTATION_LIMIT_PER_HOUR);
   if (limited) return limited;
 
   const body = await readJsonBody<{
-    action?: "comment" | "decision-signal" | "item" | "connection" | "reverse-connection" | "delete-connection" | "delete-item" | "duplicate-item";
+    action?:
+      | "comment"
+      | "decision-signal"
+      | "item"
+      | "connection"
+      | "reverse-connection"
+      | "delete-connection"
+      | "delete-item"
+      | "duplicate-item";
     itemId?: string;
     type?: RoomItemType;
     title?: string;
@@ -309,10 +322,11 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
   }
 
   const body = await readJsonBody<{
-    action?: "access" | "snapshot" | "visibility";
+    action?: "access" | "invite-expiry" | "snapshot" | "visibility";
     access?: RoomAccess;
     isSnapshotPublic?: unknown;
     visibility?: RoomVisibility;
+    inviteExpiresAt?: number | null;
     id?: string;
     title?: string;
     body?: string;
@@ -342,7 +356,7 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
       return NextResponse.json({ error: "Only the room creator can change access." }, { status: 403 });
     }
 
-    const limited = checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
     if (limited) return limited;
 
     return NextResponse.json({ room: await setRoomAccess(roomId, payload.access, credentials) });
@@ -357,25 +371,45 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
       return NextResponse.json({ error: "Only the room creator can change visibility." }, { status: 403 });
     }
 
-    const limited = checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
     if (limited) return limited;
 
-    return NextResponse.json({ room: await setRoomVisibility(roomId, payload.visibility as RoomVisibility, credentials) });
+    return NextResponse.json({
+      room: await setRoomVisibility(roomId, payload.visibility as RoomVisibility, credentials),
+    });
   }
 
   if (payload.action === "snapshot") {
     if (typeof payload.isSnapshotPublic !== "boolean") {
-      return NextResponse.json({ error: "Snapshot publishing must be explicitly enabled or disabled." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Snapshot publishing must be explicitly enabled or disabled." },
+        { status: 400 },
+      );
     }
 
     if (!(await isRoomOwner(roomId, credentials))) {
       return NextResponse.json({ error: "Only the room creator can share a public snapshot." }, { status: 403 });
     }
 
-    const limited = checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
     if (limited) return limited;
 
     return NextResponse.json({ room: await setRoomSnapshotPublic(roomId, payload.isSnapshotPublic, credentials) });
+  }
+
+  if (payload.action === "invite-expiry") {
+    if (payload.inviteExpiresAt !== null && typeof payload.inviteExpiresAt !== "number") {
+      return NextResponse.json({ error: "Invite expiry must be an epoch-ms timestamp or null." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can change invite expiry." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    return NextResponse.json({ room: await setRoomInviteExpiry(roomId, payload.inviteExpiresAt ?? null, credentials) });
   }
 
   if (!(await canEditRoom(roomId, credentials))) {
@@ -394,7 +428,7 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     return NextResponse.json({ error: "Valid item style is required." }, { status: 400 });
   }
 
-  const limited = checkRoomWriteRateLimit(request, roomId, "patch", ROOM_PATCH_LIMIT_PER_HOUR);
+  const limited = await checkRoomWriteRateLimit(request, roomId, "patch", ROOM_PATCH_LIMIT_PER_HOUR);
   if (limited) return limited;
 
   const item = await updateRoomItem(
@@ -436,7 +470,7 @@ async function handleDelete(request: Request, { params }: RoomRouteProps) {
       return NextResponse.json({ error: "Only the room creator can permanently delete it." }, { status: 403 });
     }
 
-    const limited = checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
     if (limited) return limited;
 
     const deletionStarted = await beginRoomPermanentDeletion(roomId, credentials);
@@ -462,7 +496,7 @@ async function handleDelete(request: Request, { params }: RoomRouteProps) {
     return NextResponse.json({ error: "Only the room creator can close it." }, { status: 403 });
   }
 
-  const limited = checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+  const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
   if (limited) return limited;
 
   const room = await closeRoom(roomId, credentials);

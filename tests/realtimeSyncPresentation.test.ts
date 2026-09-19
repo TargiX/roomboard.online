@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  getRealtimeSyncAnnouncement,
-  getRealtimeSyncPresentation,
-} from "../lib/realtimeSyncPresentation.ts";
+import { getRealtimeSyncAnnouncement, getRealtimeSyncPresentation } from "../lib/realtimeSyncPresentation.ts";
 
 describe("getRealtimeSyncAnnouncement", () => {
   it("announces recovery after an outage without announcing an initial healthy state", () => {
@@ -91,8 +88,7 @@ describe("getRealtimeSyncPresentation", () => {
         status: "degraded",
       }),
       {
-        detail:
-          "Phoenix collaboration is unavailable. Roomboard is retrying the session.",
+        detail: "Phoenix collaboration is unavailable. Roomboard is retrying the session.",
         label: "Reconnecting",
         status: "degraded",
         tone: "warning",
@@ -147,8 +143,7 @@ describe("getRealtimeSyncPresentation", () => {
         status: "degraded",
       }),
       {
-        detail:
-          "No realtime transport is available. Edits are not shared live.",
+        detail: "No realtime transport is available. Edits are not shared live.",
         label: "Offline",
         status: "degraded",
         tone: "critical",
@@ -170,8 +165,7 @@ describe("getRealtimeSyncPresentation", () => {
               reconnecting,
               status,
             });
-            const isConnectedPhoenix =
-              hasRealtimeEndpoint && !fallbackActive && status === "connected";
+            const isConnectedPhoenix = hasRealtimeEndpoint && !fallbackActive && status === "connected";
 
             assert.equal(
               presentation.label === "Live",
@@ -186,11 +180,7 @@ describe("getRealtimeSyncPresentation", () => {
             );
             assert.equal(
               presentation.transport,
-              fallbackActive
-                ? "fallback"
-                : hasRealtimeEndpoint
-                  ? "phoenix"
-                  : "none",
+              fallbackActive ? "fallback" : hasRealtimeEndpoint ? "phoenix" : "none",
             );
           }
         }

@@ -41,10 +41,7 @@ describe("room link helpers", () => {
 
     assert.deepEqual(invite, { token: "invalid-url-token", tokenFromUrl: "invalid-url-token" });
     assert.equal(isAuthorizedRoomInviteToken(invite.tokenFromUrl, "owner"), false);
-    assert.equal(
-      persistAuthorizedRoomInviteToken(url, "a", invite.tokenFromUrl, "owner", rememberedTokens),
-      null,
-    );
+    assert.equal(persistAuthorizedRoomInviteToken(url, "a", invite.tokenFromUrl, "owner", rememberedTokens), null);
     assert.deepEqual(rememberedTokens, { a: "remembered-valid-token" });
     assert.equal(url.toString(), "https://roomboard.test/rooms/a#invite=invalid-url-token");
   });

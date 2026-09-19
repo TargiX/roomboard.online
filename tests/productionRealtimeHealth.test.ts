@@ -10,12 +10,18 @@ import {
 describe("production realtime health helpers", () => {
   it("normalizes app and Phoenix health endpoints", () => {
     assert.equal(normalizeBaseUrl("https://www.roomboard.online/?utm=ignored#top"), "https://www.roomboard.online");
-    assert.equal(normalizeRealtimeEndpoint("https://roomboard-realtime.onrender.com/"), "https://roomboard-realtime.onrender.com");
+    assert.equal(
+      normalizeRealtimeEndpoint("https://roomboard-realtime.onrender.com/"),
+      "https://roomboard-realtime.onrender.com",
+    );
   });
 
   it("rejects local or placeholder realtime endpoints for production", () => {
     assert.throws(() => normalizeRealtimeEndpoint("http://localhost:4001"), /https/);
-    assert.throws(() => normalizeRealtimeEndpoint("https://your-phoenix-service.example.com"), /not a hosted Phoenix endpoint/);
+    assert.throws(
+      () => normalizeRealtimeEndpoint("https://your-phoenix-service.example.com"),
+      /not a hosted Phoenix endpoint/,
+    );
   });
 
   it("prefers an explicit endpoint override when provided", () => {

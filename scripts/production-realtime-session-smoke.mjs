@@ -119,17 +119,11 @@ async function openRoomContext(browser, baseUrl, roomId, user, access, contexts)
       localStorage.setItem("canvas-room-user", JSON.stringify(initialUser));
 
       if (initialAccess.ownerToken) {
-        localStorage.setItem(
-          "roomboard-owner-tokens",
-          JSON.stringify({ [initialRoomId]: initialAccess.ownerToken }),
-        );
+        localStorage.setItem("roomboard-owner-tokens", JSON.stringify({ [initialRoomId]: initialAccess.ownerToken }));
       }
 
       if (initialAccess.inviteToken) {
-        localStorage.setItem(
-          "roomboard-invite-tokens",
-          JSON.stringify({ [initialRoomId]: initialAccess.inviteToken }),
-        );
+        localStorage.setItem("roomboard-invite-tokens", JSON.stringify({ [initialRoomId]: initialAccess.inviteToken }));
       }
     },
     { initialAccess: access, initialRoomId: roomId, initialUser: user },
@@ -189,7 +183,10 @@ async function closeWithTimeout(label, close) {
     await Promise.race([
       close(),
       new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`${label} did not close within ${requestTimeoutMs}ms.`)), requestTimeoutMs);
+        timeout = setTimeout(
+          () => reject(new Error(`${label} did not close within ${requestTimeoutMs}ms.`)),
+          requestTimeoutMs,
+        );
       }),
     ]);
   } finally {

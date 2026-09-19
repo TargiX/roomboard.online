@@ -16,6 +16,47 @@ This roadmap is the product and engineering control loop for the showcase. GitHu
 - A task is done only when it is verified locally or against `https://www.roomboard.online`, and the verification is written in the issue or PR.
 - Showcase work takes priority over broad SaaS work until the first milestone is complete.
 
+## Engineering Health (2026-09 audit)
+
+A full-stack review of the canvas, realtime layer, API surface, and infra. What holds up, what was fixed, and what remains.
+
+### Done well
+
+- **Realtime auth is symmetric and timing-safe.** Phoenix verifies HMAC-SHA256 room tokens with `Plug.Crypto.secure_compare`, room-id binding, version and expiry checks (`room_channel.ex`); the Next minter mirrors it with `timingSafeEqual` (`lib/roomboardRealtimeAccess.ts`). Tokens carry role + 10-min TTL; the secret is shared via `ROOMBOARD_REALTIME_SECRET` on both sides.
+- **Server-side input hardening on the channel.** Room-id regex gate, event-type allowlist, 80KB JSON-size cap, string/number sanitizers on presence fields. Broadcasts stamp `roomId`/`senderId`/`sentAt` server-side.
+- **True E2E smoke including failure injection.** `scripts/realtime-smoke.mjs` boots both services, drives two browsers, asserts presence counts and sync-contract chips, then kills Phoenix mid-session and verifies both pages degrade to fallback transport and edits still propagate.
+- **Release gates are real.** `pnpm verify` (typecheck + tests + build), `readiness:local`/`readiness:prod`, `release:prod:check` with expected-git-SHA pinning, and a CI workflow running typecheck/test/build on every PR.
+- **Honest degradation.** One-way fallback switch prevents flapping; SSE fallback keeps edits syncing when Phoenix dies.
+
+### Fixed in this pass
+
+
+- **Optimistic concurrency on room documents.** `mutateRoom` does read-modify-write guarded by a `version` token with conditional save (Supabase `document->>version` match, local store parity) and one retry; conflicts surface as `RoomConflictError` → HTTP 409 via `withRoomNotFoundAs404` instead of silently dropping a write.
+- **Room version history.** Every committed mutation appends a capped (50-entry) `history` record — version, timestamp, item/connection/comment counts — exposed on the snapshot and shown as a `rev vN` chip on the canvas.
+- **Phoenix channel hardening.** `room:event` enforces the signed role server-side (`viewer_read_only`), a 40-events/1s per-connection rate window, and presence updates are throttled to 40ms with a coalescing flush — closing the unbounded-fanout DoS hole.
+- **Presence diff consumption + multiplayer selection.** The client consumes `presence_diff` (joins/leaves) instead of a manual broadcast, and each presence payload now carries `selection` — remote collaborators' selected cards get a ring in their cursor color.
+- **Realtime token refresh on reconnect.** `createRoomboardRealtimeSession` accepts `getAccessToken`; channel `params` is a function and `rejoin` is wrapped so every rejoin mints a fresh 10-minute token via `refreshRoomSnapshot`.
+- **Token storage consolidated.** `lib/roomTokens.ts` is the single owner of `roomboard-owner-tokens`/`roomboard-invite-tokens` localStorage maps; the triplicated logic in `CanvasRoom`, `RoomsDashboard`, and `LandingPage` is gone.
+- **CanvasRoom decomposition.** `components/room/` now holds `RoomHeader.tsx` (header + main-menu dropdown), `RoomModals.tsx` (close/lock/profile modals), `RoomInspector.tsx`, `RoomToolbar.tsx`, `roomTypes.ts` (`CanvasPalette`, `RoomTheme`, `LocalUser`), `usePixiScene.ts` (boot/pan/zoom lifecycle), `drawItem.ts` (card render loop via `createDrawItem(ctx)`), and `connectionDrag.ts` (connection-drag handlers + pipe geometry via `createConnectionHandlers(ctx)`). `lib/pixiScene.ts` holds the scene type, zoom/text-resolution helpers, card geometry/text helpers, texture loading, texture-aware teardown. CanvasRoom: 6157 → 4171 lines.
+- **Prettier applied repo-wide.** `pnpm format` run as a dedicated pass; `format:check` is clean and enforced in CI.
+- **Presence map pruning.** `lib/presence.ts` drops a room's `snapshotsByRoom`/`clientsByRoom` entries once both are empty — the SSE fallback maps no longer grow one entry per room ever visited.
+- **Dead `expiresAt` removed.** The Phoenix presence payload no longer computes an `expiresAt` nothing read; staleness is enforced client-side via `updatedAt` + `PRESENCE_TTL_MS`.
+- **Dev PostHog throw removed.** `instrumentation-client.ts` warns instead of throwing when env is missing — hydration no longer dies in unconfigured dev environments.
+- **GPU texture leak fixed.** `destroyItemContainer` destroys sprite textures on card removal/re-render; `removeChildren()` no longer detaches without destroying.
+- **Zoom badge isolated.** `zoomPercent` moved out of React state to a DOM ref — wheel zoom no longer re-renders the whole room component per tick.
+- **Distributed rate limiting.** `checkRateLimitDistributed` uses the `roomboard_rate_limit_hit` Postgres function (schema added) so limits hold across serverless instances; falls back to the in-memory bucket when Supabase is absent or the RPC fails.
+- **Invite link expiration.** `inviteExpiresAt` on the room document; owner-only `PATCH action:"invite-expiry"`; expired invite tokens stop granting access (owner unaffected).
+- **Richer recap export.** Markdown now includes a decision brief with next steps, a card-links section, and up to two comment excerpts per card.
+- **Dead SSR removed.** `initialRooms` prop and the always-empty server-side `listRooms()` calls dropped from `app/page.tsx`, `app/rooms/page.tsx`, `app/for/[starter]/page.tsx`.
+- **Signed URL TTL shortened.** Upload signed URLs re-minted per snapshot now live 1 hour instead of 7 days.
+- **Lint tooling.** ESLint 9 flat config (`eslint-config-next`), Prettier config, `pnpm lint`/`format` scripts, and a Lint step in CI. Baseline: 0 errors, ~59 warnings (React-compiler-era rules kept as warnings).
+
+### Remaining debt (priority order)
+
+1. **CanvasRoom remains the largest file** (~4.2K lines) but is now mostly orchestration: state, effects, and the JSX shell. Further extraction has diminishing returns; the next meaningful split would be the mutation/action layer (`publishBoardEvent`, `handleDeleteItem`, `updateItemStatus`, comment handlers) into a `useRoomActions` hook.
+2. **Render free-plan caveats.** Spin-down after 15min idle → >60s cold starts vs 45s join timeout; single-instance PubSub/Presence means scaling past 1 instance silently splits presence.
+3. **Supabase rate-limit function needs deploying.** `roomboard_rate_limit_hit` ships in `supabase/roomboard-schema.sql`; re-run the schema in the prod project SQL editor. Until then `checkRateLimitDistributed` silently falls back to in-memory (fail-open).
+
 ## Milestone 1: Showcase v1 - reliable product preview
 
 Goal: an employer, collaborator, or early user can open `https://www.roomboard.online`, understand the product in under a minute, create or join a private room, and see a believable realtime collaboration flow without hand-holding.

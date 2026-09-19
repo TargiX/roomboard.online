@@ -32,16 +32,12 @@ export function normalizeRoomRouteFromInput(value: string) {
 
   try {
     const hasUrlOrPathShape = /^https?:\/\//i.test(trimmed) || trimmed.startsWith("/") || trimmed.includes("/");
-    const url = new URL(trimmed.match(/^https?:\/\//i)
-      ? trimmed
-      : `https://roomboard.local/${trimmed.replace(/^\/+/, "")}`);
+    const url = new URL(
+      trimmed.match(/^https?:\/\//i) ? trimmed : `https://roomboard.local/${trimmed.replace(/^\/+/, "")}`,
+    );
     const parts = url.pathname.split("/").filter(Boolean);
     const roomIndex = parts.findIndex((part) => part === "rooms" || part === "r");
-    const roomId = roomIndex >= 0
-      ? parts[roomIndex + 1]
-      : !hasUrlOrPathShape && parts.length === 1
-        ? parts[0]
-        : "";
+    const roomId = roomIndex >= 0 ? parts[roomIndex + 1] : !hasUrlOrPathShape && parts.length === 1 ? parts[0] : "";
 
     if (!roomId || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,96}$/.test(roomId)) {
       return "";

@@ -76,7 +76,9 @@ export function verifyRoomboardRealtimeAccessToken(token: string, roomId: string
   }
 
   try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<RealtimeAccessPayload>;
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Partial<RealtimeAccessPayload>;
     return (
       payload.v === tokenVersion &&
       payload.roomId === roomId &&

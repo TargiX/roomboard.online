@@ -168,6 +168,7 @@ export type RoomSnapshot = {
   items: RoomItem[];
   connections: RoomConnection[];
   activities: RoomActivity[];
+  history?: RoomHistoryEntry[];
 };
 
 export type RoomRecapItem = {
@@ -177,6 +178,7 @@ export type RoomRecapItem = {
   body: string;
   author: string;
   commentCount: number;
+  comments?: string[];
   decisionSignalCount: number;
   source?: string;
 };
@@ -227,6 +229,13 @@ type RoomClient = {
   controller: ReadableStreamDefaultController<Uint8Array>;
 };
 
+export type RoomHistoryEntry = {
+  version: number;
+  updatedAt: number;
+  itemCount: number;
+  connectionCount: number;
+  commentCount: number;
+};
 type RoomDocument = {
   id: string;
   name: string;
@@ -238,10 +247,16 @@ type RoomDocument = {
   createdAt: number;
   updatedAt: number;
   closedAt?: number;
+  /** Epoch ms after which invite tokens stop granting access; owner unaffected. */
+  inviteExpiresAt?: number;
+  /** Capped audit trail of committed document versions (newest last). */
+  history?: RoomHistoryEntry[];
   deletionRequestedAt?: number;
   items: RoomItem[];
   connections: RoomConnection[];
   activities?: RoomActivity[];
+  /** Optimistic-concurrency token; bumped by every conditional save. */
+  version?: number;
 };
 
 type RoomMutation<T> = (room: RoomDocument) => T;
@@ -250,7 +265,12 @@ type RoomStore = {
   delete: (roomId: string) => Promise<void>;
   get: (roomId: string) => Promise<RoomDocument | null>;
   list: () => Promise<RoomDocument[]>;
-  save: (room: RoomDocument) => Promise<void>;
+  /**
+   * Persists the document. When `expectedVersion` is given the write only
+   * succeeds if the stored document still carries that version; returns false
+   * on conflict so callers can re-read and retry.
+   */
+  save: (room: RoomDocument, expectedVersion?: number) => Promise<boolean>;
 };
 
 type RoomCredentialsInput = RoomCredentials | string | null | undefined;
@@ -290,11 +310,9 @@ export class RoomCapacityError extends Error {
 }
 
 export function isRoomCapacityError(error: unknown): error is RoomCapacityError {
-  return error instanceof RoomCapacityError || (
-    error instanceof Error &&
-    error.name === "RoomCapacityError" &&
-    "kind" in error &&
-    "limit" in error
+  return (
+    error instanceof RoomCapacityError ||
+    (error instanceof Error && error.name === "RoomCapacityError" && "kind" in error && "limit" in error)
   );
 }
 
@@ -390,7 +408,8 @@ function normalizeActivity(value: unknown): RoomActivity | null {
 
   return {
     id: activity.id,
-    actor: typeof activity.actor === "string" && activity.actor.trim() ? activity.actor.trim().slice(0, 24) : "Roomboard",
+    actor:
+      typeof activity.actor === "string" && activity.actor.trim() ? activity.actor.trim().slice(0, 24) : "Roomboard",
     createdAt: Math.round(createdAt),
     itemId: typeof activity.itemId === "string" ? activity.itemId : undefined,
     itemTitle: typeof activity.itemTitle === "string" ? activity.itemTitle.slice(0, 72) : undefined,
@@ -404,15 +423,11 @@ function normalizeActor(actor?: string) {
 }
 
 function normalizeRoomColor(color: unknown, fallback = "#48a7ff") {
-  return typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim())
-    ? color.trim().toLowerCase()
-    : fallback;
+  return typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim()) ? color.trim().toLowerCase() : fallback;
 }
 
 function clampRoomNumber(value: unknown, fallback: number, min: number, max: number) {
-  return Number.isFinite(value)
-    ? Math.min(max, Math.max(min, Math.round(value as number)))
-    : fallback;
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value as number))) : fallback;
 }
 
 function appendRoomActivity(
@@ -449,12 +464,10 @@ function normalizeRoomDocument(room: RoomDocument): RoomDocument {
     visibility: room.visibility === "public" ? "public" : "private",
     isSnapshotPublic: room.isSnapshotPublic === true,
     inviteTokens: {
-      editor: typeof room.inviteTokens?.editor === "string"
-        ? room.inviteTokens.editor
-        : deriveInviteToken(room, "editor"),
-      viewer: typeof room.inviteTokens?.viewer === "string"
-        ? room.inviteTokens.viewer
-        : deriveInviteToken(room, "viewer"),
+      editor:
+        typeof room.inviteTokens?.editor === "string" ? room.inviteTokens.editor : deriveInviteToken(room, "editor"),
+      viewer:
+        typeof room.inviteTokens?.viewer === "string" ? room.inviteTokens.viewer : deriveInviteToken(room, "viewer"),
     },
     items: room.items.map((item) => ({
       ...item,
@@ -810,7 +823,13 @@ function createFinishedLandingApprovalSampleItems(createdAt = Date.now()): RoomI
       createdAt: createdAt - 720000,
       updatedAt: createdAt - 120000,
       comments: [
-        { id: "sample-comment-question", author: "Noah", body: "One call, not a general design review. I can approve this today.", color: "#48a7ff", createdAt: createdAt - 660000 },
+        {
+          id: "sample-comment-question",
+          author: "Noah",
+          body: "One call, not a general design review. I can approve this today.",
+          color: "#48a7ff",
+          createdAt: createdAt - 660000,
+        },
       ],
     },
     {
@@ -829,7 +848,13 @@ function createFinishedLandingApprovalSampleItems(createdAt = Date.now()): RoomI
       createdAt: createdAt - 680000,
       updatedAt: createdAt - 90000,
       comments: [
-        { id: "sample-comment-desktop", author: "Mira", body: "Approved. The product is visible before the first scroll and the CTA is unambiguous.", color: "#facc5c", createdAt: createdAt - 180000 },
+        {
+          id: "sample-comment-desktop",
+          author: "Mira",
+          body: "Approved. The product is visible before the first scroll and the CTA is unambiguous.",
+          color: "#facc5c",
+          createdAt: createdAt - 180000,
+        },
       ],
     },
     {
@@ -847,7 +872,13 @@ function createFinishedLandingApprovalSampleItems(createdAt = Date.now()): RoomI
       createdAt: createdAt - 620000,
       updatedAt: createdAt - 80000,
       comments: [
-        { id: "sample-comment-copy", author: "Ilya", body: "This names the workflow and the outcome. Ship it.", color: "#62d681", createdAt: createdAt - 150000 },
+        {
+          id: "sample-comment-copy",
+          author: "Ilya",
+          body: "This names the workflow and the outcome. Ship it.",
+          color: "#62d681",
+          createdAt: createdAt - 150000,
+        },
       ],
     },
     {
@@ -866,7 +897,13 @@ function createFinishedLandingApprovalSampleItems(createdAt = Date.now()): RoomI
       createdAt: createdAt - 540000,
       updatedAt: createdAt - 70000,
       comments: [
-        { id: "sample-comment-mobile", author: "Noah", body: "Approved after the CTA spacing fix.", color: "#48a7ff", createdAt: createdAt - 140000 },
+        {
+          id: "sample-comment-mobile",
+          author: "Noah",
+          body: "Approved after the CTA spacing fix.",
+          color: "#48a7ff",
+          createdAt: createdAt - 140000,
+        },
       ],
     },
     {
@@ -900,7 +937,13 @@ function createFinishedLandingApprovalSampleItems(createdAt = Date.now()): RoomI
       createdAt: createdAt - 420000,
       updatedAt: createdAt - 30000,
       comments: [
-        { id: "sample-comment-record", author: "Noah", body: "Decision closed. No further review needed before launch.", color: "#48a7ff", createdAt: createdAt - 45000 },
+        {
+          id: "sample-comment-record",
+          author: "Noah",
+          body: "Decision closed. No further review needed before launch.",
+          color: "#48a7ff",
+          createdAt: createdAt - 45000,
+        },
       ],
     },
   ];
@@ -1019,24 +1062,136 @@ function createRoomDocument(
   });
 
   if (starterTemplate === "landing-review") {
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 60000, message: 'Created "Decision question"', itemId: "note-decision-question", itemTitle: "Decision question", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 55000, message: 'Created "Visual to approve"', itemId: "note-visual-material", itemTitle: "Visual to approve", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 48000, message: 'Created "Copy to approve"', itemId: "note-copy-review", itemTitle: "Copy to approve", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 35000, message: 'Created "Mobile check"', itemId: "note-mobile-check", itemTitle: "Mobile check", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 18000, message: 'Created "Approval criteria"', itemId: "note-criteria", itemTitle: "Approval criteria", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 10000, message: 'Created "Decision record"', itemId: "note-decision-record", itemTitle: "Decision record", type: "item_created" });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 60000,
+      message: 'Created "Decision question"',
+      itemId: "note-decision-question",
+      itemTitle: "Decision question",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 55000,
+      message: 'Created "Visual to approve"',
+      itemId: "note-visual-material",
+      itemTitle: "Visual to approve",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 48000,
+      message: 'Created "Copy to approve"',
+      itemId: "note-copy-review",
+      itemTitle: "Copy to approve",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 35000,
+      message: 'Created "Mobile check"',
+      itemId: "note-mobile-check",
+      itemTitle: "Mobile check",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 18000,
+      message: 'Created "Approval criteria"',
+      itemId: "note-criteria",
+      itemTitle: "Approval criteria",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 10000,
+      message: 'Created "Decision record"',
+      itemId: "note-decision-record",
+      itemTitle: "Decision record",
+      type: "item_created",
+    });
   } else if (starterTemplate === "moodboard") {
-    appendRoomActivity(room, { actor: "Mira", createdAt: createdAt - 60000, message: 'Created "Direction"', itemId: "note-direction", itemTitle: "Direction", type: "item_created" });
-    appendRoomActivity(room, { actor: "Kai", createdAt: createdAt - 54000, message: 'Added image "Reference A"', itemId: "image-reference-a", itemTitle: "Reference A", type: "item_created" });
-    appendRoomActivity(room, { actor: "Nora", createdAt: createdAt - 50000, message: 'Added image "Reference B"', itemId: "image-reference-b", itemTitle: "Reference B", type: "item_created" });
-    appendRoomActivity(room, { actor: "Ilya", createdAt: createdAt - 36000, message: 'Created "Decision criteria"', itemId: "note-criteria", itemTitle: "Decision criteria", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 12000, message: 'Created "Next step"', itemId: "note-next-step", itemTitle: "Next step", type: "item_created" });
+    appendRoomActivity(room, {
+      actor: "Mira",
+      createdAt: createdAt - 60000,
+      message: 'Created "Direction"',
+      itemId: "note-direction",
+      itemTitle: "Direction",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Kai",
+      createdAt: createdAt - 54000,
+      message: 'Added image "Reference A"',
+      itemId: "image-reference-a",
+      itemTitle: "Reference A",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Nora",
+      createdAt: createdAt - 50000,
+      message: 'Added image "Reference B"',
+      itemId: "image-reference-b",
+      itemTitle: "Reference B",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Ilya",
+      createdAt: createdAt - 36000,
+      message: 'Created "Decision criteria"',
+      itemId: "note-criteria",
+      itemTitle: "Decision criteria",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 12000,
+      message: 'Created "Next step"',
+      itemId: "note-next-step",
+      itemTitle: "Next step",
+      type: "item_created",
+    });
   } else if (starterTemplate === "visual-decision") {
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 60000, message: 'Created "Decision question"', itemId: "note-question", itemTitle: "Decision question", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 54000, message: 'Created "Visual material"', itemId: "note-material", itemTitle: "Visual material", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 50000, message: 'Created "Feedback to collect"', itemId: "note-feedback", itemTitle: "Feedback to collect", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 36000, message: 'Created "Decision criteria"', itemId: "note-criteria", itemTitle: "Decision criteria", type: "item_created" });
-    appendRoomActivity(room, { actor: "Roomboard", createdAt: createdAt - 12000, message: 'Created "Final decision"', itemId: "note-decision", itemTitle: "Final decision", type: "item_created" });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 60000,
+      message: 'Created "Decision question"',
+      itemId: "note-question",
+      itemTitle: "Decision question",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 54000,
+      message: 'Created "Visual material"',
+      itemId: "note-material",
+      itemTitle: "Visual material",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 50000,
+      message: 'Created "Feedback to collect"',
+      itemId: "note-feedback",
+      itemTitle: "Feedback to collect",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 36000,
+      message: 'Created "Decision criteria"',
+      itemId: "note-criteria",
+      itemTitle: "Decision criteria",
+      type: "item_created",
+    });
+    appendRoomActivity(room, {
+      actor: "Roomboard",
+      createdAt: createdAt - 12000,
+      message: 'Created "Final decision"',
+      itemId: "note-decision",
+      itemTitle: "Final decision",
+      type: "item_created",
+    });
   }
 
   return room;
@@ -1064,12 +1219,54 @@ function createSampleRoomDocument(config: SampleRoomConfig, ownerToken = crypto.
   room.items = createFinishedLandingApprovalSampleItems(sampleFinishedAt);
   room.connections = createFinishedLandingApprovalSampleConnections();
   room.activities = [];
-  appendRoomActivity(room, { actor: "Mira", createdAt: sampleFinishedAt - 720000, message: 'Opened the launch approval decision.', itemId: "note-decision-question", itemTitle: "Decision: which hero ships?", type: "item_created" });
-  appendRoomActivity(room, { actor: "Ilya", createdAt: sampleFinishedAt - 680000, message: 'Added "Desktop hero — focused version"', itemId: "image-desktop-final", itemTitle: "Desktop hero — focused version", type: "item_created" });
-  appendRoomActivity(room, { actor: "Noah", createdAt: sampleFinishedAt - 180000, message: "Commented on the desktop hero", itemId: "image-desktop-final", itemTitle: "Desktop hero — focused version", type: "comment_created" });
-  appendRoomActivity(room, { actor: "Mira", createdAt: sampleFinishedAt - 90000, message: "Approved the desktop hero", itemId: "image-desktop-final", itemTitle: "Desktop hero — focused version", type: "status_changed" });
-  appendRoomActivity(room, { actor: "Noah", createdAt: sampleFinishedAt - 45000, message: "Confirmed the launch decision", itemId: landingApprovalSampleVersionItemId, itemTitle: "Decision record — ready to ship", type: "comment_created" });
-  appendRoomActivity(room, { actor: "Mira", createdAt: sampleFinishedAt - 30000, message: "Completed the decision record", itemId: landingApprovalSampleVersionItemId, itemTitle: "Decision record — ready to ship", type: "status_changed" });
+  appendRoomActivity(room, {
+    actor: "Mira",
+    createdAt: sampleFinishedAt - 720000,
+    message: "Opened the launch approval decision.",
+    itemId: "note-decision-question",
+    itemTitle: "Decision: which hero ships?",
+    type: "item_created",
+  });
+  appendRoomActivity(room, {
+    actor: "Ilya",
+    createdAt: sampleFinishedAt - 680000,
+    message: 'Added "Desktop hero — focused version"',
+    itemId: "image-desktop-final",
+    itemTitle: "Desktop hero — focused version",
+    type: "item_created",
+  });
+  appendRoomActivity(room, {
+    actor: "Noah",
+    createdAt: sampleFinishedAt - 180000,
+    message: "Commented on the desktop hero",
+    itemId: "image-desktop-final",
+    itemTitle: "Desktop hero — focused version",
+    type: "comment_created",
+  });
+  appendRoomActivity(room, {
+    actor: "Mira",
+    createdAt: sampleFinishedAt - 90000,
+    message: "Approved the desktop hero",
+    itemId: "image-desktop-final",
+    itemTitle: "Desktop hero — focused version",
+    type: "status_changed",
+  });
+  appendRoomActivity(room, {
+    actor: "Noah",
+    createdAt: sampleFinishedAt - 45000,
+    message: "Confirmed the launch decision",
+    itemId: landingApprovalSampleVersionItemId,
+    itemTitle: "Decision record — ready to ship",
+    type: "comment_created",
+  });
+  appendRoomActivity(room, {
+    actor: "Mira",
+    createdAt: sampleFinishedAt - 30000,
+    message: "Completed the decision record",
+    itemId: landingApprovalSampleVersionItemId,
+    itemTitle: "Decision record — ready to ship",
+    type: "status_changed",
+  });
   room.updatedAt = sampleFinishedAt - 30000;
   return room;
 }
@@ -1126,10 +1323,17 @@ function createLocalRoomStore(): RoomStore {
     async list() {
       return Array.from(loadLocalDocuments().values()).map(cloneRoom);
     },
-    async save(room) {
+    async save(room, expectedVersion) {
       const documents = loadLocalDocuments();
+      if (expectedVersion !== undefined) {
+        const stored = documents.get(room.id);
+        if (!stored || (stored.version ?? 0) !== expectedVersion) {
+          return false;
+        }
+      }
       documents.set(room.id, cloneRoom(room));
       persistLocalDocuments(documents);
+      return true;
     },
   };
 }
@@ -1182,19 +1386,30 @@ function createSupabaseRoomStore(client: SupabaseClient): RoomStore {
 
       return (data ?? []).map((row) => normalizeRoomDocument(row.document as RoomDocument));
     },
-    async save(room) {
-      await client
+    async save(room, expectedVersion) {
+      const row = {
+        closed_at: room.closedAt ?? null,
+        document: room,
+        id: room.id,
+        updated_at: new Date(room.updatedAt).toISOString(),
+      };
+
+      if (expectedVersion === undefined) {
+        await client.from(ROOMBOARD_SUPABASE_TABLE).upsert(row, { onConflict: "id" }).throwOnError();
+        return true;
+      }
+
+      // Conditional update: only write when the stored document still carries
+      // the version we read. Legacy rows without a version count as 0.
+      const { data } = await client
         .from(ROOMBOARD_SUPABASE_TABLE)
-        .upsert(
-          {
-            closed_at: room.closedAt ?? null,
-            document: room,
-            id: room.id,
-            updated_at: new Date(room.updatedAt).toISOString(),
-          },
-          { onConflict: "id" },
-        )
+        .update(row)
+        .eq("id", room.id)
+        .or(`document->>version.is.null,document->>version.eq.${expectedVersion}`)
+        .select("id")
         .throwOnError();
+
+      return (data?.length ?? 0) > 0;
     },
   };
 }
@@ -1239,12 +1454,13 @@ function toRoomSummary(
     access: room.access,
     visibility: room.visibility ?? "private",
     isSnapshotPublic: room.isSnapshotPublic === true,
-    shareInvite: options.shareInviteRole && shareInviteToken
-      ? {
-        role: options.shareInviteRole,
-        token: shareInviteToken,
-      }
-      : undefined,
+    shareInvite:
+      options.shareInviteRole && shareInviteToken
+        ? {
+            role: options.shareInviteRole,
+            token: shareInviteToken,
+          }
+        : undefined,
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     itemCount: items.length,
@@ -1278,10 +1494,7 @@ async function resolveRoomItemUploads(items: RoomItem[]) {
   );
 }
 
-async function toRoomSummaryWithUploads(
-  room: RoomDocument,
-  options: { shareInviteRole?: RoomInviteRole } = {},
-) {
+async function toRoomSummaryWithUploads(room: RoomDocument, options: { shareInviteRole?: RoomInviteRole } = {}) {
   return toRoomSummary(room, await resolveRoomItemUploads(room.items), options);
 }
 
@@ -1323,6 +1536,7 @@ function toRecapItem(item: RoomItem): RoomRecapItem {
     body: compactRecapText(item.body, 120),
     author: item.author,
     commentCount: item.comments.length,
+    comments: item.comments.slice(0, 2).map((comment) => `${comment.author}: ${compactRecapText(comment.body, 80)}`),
     decisionSignalCount: item.decisionSignals?.length ?? 0,
     source: getSourceHost(item.imageUrl),
   };
@@ -1351,13 +1565,14 @@ export function buildRoomDecisionBrief(items: RoomItem[]): RoomDecisionBrief {
       title: item.title.trim() || "Untitled card",
     }));
 
-  const headline = revisionCount > 0
-    ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
-    : pendingCount > 0
-      ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
-      : items.length > 0
-        ? "Every card has a decision. This room is ready to share."
-        : "This board is ready for its first decision.";
+  const headline =
+    revisionCount > 0
+      ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
+      : pendingCount > 0
+        ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
+        : items.length > 0
+          ? "Every card has a decision. This room is ready to share."
+          : "This board is ready for its first decision.";
 
   return {
     approvedCount,
@@ -1369,7 +1584,9 @@ export function buildRoomDecisionBrief(items: RoomItem[]): RoomDecisionBrief {
   };
 }
 
-export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room">): RoomRecap {
+export function buildRoomRecap(
+  snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room">,
+): RoomRecap {
   const sections = recapStatusOrder.map((status) => {
     const sectionItems = snapshot.items
       .filter((item) => item.status === status)
@@ -1408,12 +1625,36 @@ export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "conn
           item.commentCount > 0 ? `${item.commentCount} comments` : "",
           item.decisionSignalCount > 0 ? `${item.decisionSignalCount} decision signals` : "",
           item.source ? `source: ${item.source}` : "",
-        ].filter(Boolean).join(" | ");
+        ]
+          .filter(Boolean)
+          .join(" | ");
         const body = item.body ? ` - ${item.body}` : "";
         markdownLines.push(`- ${item.title}${body}${meta ? ` (${meta})` : ""}`);
+        for (const comment of item.comments ?? []) {
+          markdownLines.push(`  - ${comment}`);
+        }
       }
     }
 
+    markdownLines.push("");
+  }
+
+  const brief = buildRoomDecisionBrief(snapshot.items);
+  markdownLines.push("## Decision brief");
+  markdownLines.push(`- ${brief.headline}`);
+  for (const step of brief.nextSteps) {
+    markdownLines.push(`- Next: ${step.title} (${step.status.replace("_", " ")})`);
+  }
+  markdownLines.push("");
+
+  if (snapshot.connections.length > 0) {
+    const titleById = new Map(snapshot.items.map((item) => [item.id, item.title.trim() || "Untitled card"]));
+    markdownLines.push("## Card links");
+    for (const connection of snapshot.connections) {
+      markdownLines.push(
+        `- ${titleById.get(connection.from) ?? connection.from} -> ${titleById.get(connection.to) ?? connection.to}`,
+      );
+    }
     markdownLines.push("");
   }
 
@@ -1457,14 +1698,15 @@ async function ensureSampleRoom(config: SampleRoomConfig) {
     shouldSave = true;
   }
 
-  const hasExpectedTemplateShape = config.starterTemplate === "moodboard"
-    ? existing.items.some((item) => item.id === "note-direction")
-    : config.starterTemplate === "visual-decision"
-      ? existing.items.some((item) => item.id === "note-material") &&
-        existing.items.some((item) => item.id === "note-feedback") &&
-        !existing.items.some((item) => item.id === "image-option-a" || item.id === "image-option-b")
-      : existing.items.some((item) => item.id === landingApprovalSampleVersionItemId) &&
-        existing.items.every((item) => item.status === "approved");
+  const hasExpectedTemplateShape =
+    config.starterTemplate === "moodboard"
+      ? existing.items.some((item) => item.id === "note-direction")
+      : config.starterTemplate === "visual-decision"
+        ? existing.items.some((item) => item.id === "note-material") &&
+          existing.items.some((item) => item.id === "note-feedback") &&
+          !existing.items.some((item) => item.id === "image-option-a" || item.id === "image-option-b")
+        : existing.items.some((item) => item.id === landingApprovalSampleVersionItemId) &&
+          existing.items.every((item) => item.status === "approved");
   if (existing.items.length < 5 || !hasExpectedTemplateShape) {
     const refreshedSample = createSampleRoomDocument(config, existing.ownerToken);
     existing.items = refreshedSample.items;
@@ -1554,11 +1796,13 @@ function getRoomRole(room: RoomDocument, credentialsInput?: RoomCredentialsInput
     return "owner";
   }
 
-  if (credentials.inviteToken && credentials.inviteToken === room.inviteTokens?.editor) {
+  const inviteExpired = room.inviteExpiresAt !== undefined && room.inviteExpiresAt <= Date.now();
+
+  if (!inviteExpired && credentials.inviteToken && credentials.inviteToken === room.inviteTokens?.editor) {
     return "editor";
   }
 
-  if (credentials.inviteToken && credentials.inviteToken === room.inviteTokens?.viewer) {
+  if (!inviteExpired && credentials.inviteToken && credentials.inviteToken === room.inviteTokens?.viewer) {
     return "viewer";
   }
 
@@ -1581,14 +1825,52 @@ function toRoomPermissions(role: RoomRole): RoomPermissions {
   };
 }
 
+/** Thrown when two writers race the same room document and the loser exhausts retries. */
+export class RoomConflictError extends Error {
+  readonly roomId: string;
+
+  constructor(roomId: string) {
+    super(`Room "${roomId}" changed while the update was being saved.`);
+    this.name = "RoomConflictError";
+    this.roomId = roomId;
+  }
+}
+
+export function isRoomConflictError(error: unknown): error is RoomConflictError {
+  return error instanceof RoomConflictError || (error instanceof Error && error.name === "RoomConflictError");
+}
+
 async function mutateRoom<T>(roomId: string, mutation: RoomMutation<T>) {
-  const room = await getRoom(roomId);
-  const result = mutation(room);
-  room.connections = dedupeRoomConnections(room.connections);
-  room.updatedAt = Date.now();
-  await getRoomStore().save(room);
-  await publishRoomSnapshot(roomId);
-  return result;
+  // Read-modify-write guarded by a version check: a concurrent writer bumps
+  // the version, our conditional save fails, and we re-read and retry once.
+  // Beyond that we surface a conflict instead of silently dropping a write.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const room = await getRoom(roomId);
+    const expectedVersion = room.version ?? 0;
+    const result = mutation(room);
+    room.connections = dedupeRoomConnections(room.connections);
+    room.updatedAt = Date.now();
+    room.version = expectedVersion + 1;
+    // Capped audit trail: every committed version records the board shape so
+    // the room's evolution is inspectable without storing full diffs.
+    room.history = [
+      ...(room.history ?? []),
+      {
+        version: room.version,
+        updatedAt: room.updatedAt,
+        itemCount: room.items.length,
+        connectionCount: room.connections.length,
+        commentCount: room.items.reduce((total, item) => total + item.comments.length, 0),
+      },
+    ].slice(-50);
+
+    if (await getRoomStore().save(room, expectedVersion)) {
+      await publishRoomSnapshot(roomId);
+      return result;
+    }
+  }
+
+  throw new RoomConflictError(roomId);
 }
 
 export async function createRoom(
@@ -1655,12 +1937,13 @@ export async function listRooms(access?: RoomListAccess) {
       return false;
     });
 
-  return (await Promise.all(rooms.map((room) =>
-    toRoomSummaryWithUploads(
-      room,
-      ownerTokens[room.id] === room.ownerToken ? { shareInviteRole: "editor" } : {},
-    ),
-  ))).sort((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    await Promise.all(
+      rooms.map((room) =>
+        toRoomSummaryWithUploads(room, ownerTokens[room.id] === room.ownerToken ? { shareInviteRole: "editor" } : {}),
+      ),
+    )
+  ).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function getRoomSummary(roomId = DEFAULT_ROOM_ID): Promise<RoomSummary | null> {
@@ -1702,6 +1985,7 @@ export async function getRoomSnapshot(
     items,
     connections: dedupeRoomConnections(room.connections),
     activities: (room.activities ?? []).slice(0, 50),
+    history: room.history ?? [],
   };
 }
 
@@ -1782,7 +2066,11 @@ export async function setRoomAccess(roomId: string, access: RoomAccess, credenti
   });
 }
 
-export async function setRoomVisibility(roomId: string, visibility: RoomVisibility, credentialsInput?: RoomCredentialsInput) {
+export async function setRoomVisibility(
+  roomId: string,
+  visibility: RoomVisibility,
+  credentialsInput?: RoomCredentialsInput,
+) {
   if (!(await isRoomOwner(roomId, credentialsInput))) {
     return null;
   }
@@ -1811,9 +2099,33 @@ export async function setRoomSnapshotPublic(
     room.isSnapshotPublic = isSnapshotPublic;
     appendRoomActivity(room, {
       actor: "Creator",
-      message: isSnapshotPublic
-        ? "Enabled the public read-only snapshot."
-        : "Disabled the public read-only snapshot.",
+      message: isSnapshotPublic ? "Enabled the public read-only snapshot." : "Disabled the public read-only snapshot.",
+      type: "access_changed",
+    });
+    return toRoomSummary(room);
+  });
+}
+
+/**
+ * Owner-only: set (or clear with null) the epoch-ms instant after which invite
+ * tokens stop granting access. The owner token is never affected.
+ */
+export async function setRoomInviteExpiry(
+  roomId: string,
+  inviteExpiresAt: number | null,
+  credentialsInput?: RoomCredentialsInput,
+) {
+  if (!(await isRoomOwner(roomId, credentialsInput))) {
+    return null;
+  }
+
+  return mutateRoom(roomId, (room) => {
+    room.inviteExpiresAt = inviteExpiresAt ?? undefined;
+    appendRoomActivity(room, {
+      actor: "Creator",
+      message: inviteExpiresAt
+        ? `Invite links now expire ${new Date(inviteExpiresAt).toISOString()}.`
+        : "Removed the invite link expiry.",
       type: "access_changed",
     });
     return toRoomSummary(room);
@@ -2036,7 +2348,8 @@ export async function updateRoomItem(
     }
 
     item.updatedAt = Date.now();
-    const moved = (Number.isFinite(input.x) && item.x !== before.x) || (Number.isFinite(input.y) && item.y !== before.y);
+    const moved =
+      (Number.isFinite(input.x) && item.x !== before.x) || (Number.isFinite(input.y) && item.y !== before.y);
     const statusChanged = input.status !== undefined && item.status !== before.status;
     const renamed = item.title !== before.title;
     const contentChanged =
@@ -2128,15 +2441,16 @@ export async function toggleRoomItemDecisionSignal(
     if (!item || !voterId) return null;
 
     const signals = item.decisionSignals ?? [];
-    const existingIndex = signals.findIndex((signal) => signal.voterId
-      ? signal.voterId === voterId
-      : signal.voter.toLowerCase() === voter.toLowerCase());
+    const existingIndex = signals.findIndex((signal) =>
+      signal.voterId ? signal.voterId === voterId : signal.voter.toLowerCase() === voter.toLowerCase(),
+    );
     if (existingIndex < 0) {
       assertRoomCapacity("decisionSignalsPerItem", signals.length);
     }
-    item.decisionSignals = existingIndex >= 0
-      ? signals.filter((_, index) => index !== existingIndex)
-      : [...signals, { voterId, voter, color: normalizeRoomColor(input.color), createdAt: Date.now() }];
+    item.decisionSignals =
+      existingIndex >= 0
+        ? signals.filter((_, index) => index !== existingIndex)
+        : [...signals, { voterId, voter, color: normalizeRoomColor(input.color), createdAt: Date.now() }];
     item.updatedAt = Date.now();
     appendRoomActivity(room, {
       actor: voter,
@@ -2164,7 +2478,9 @@ export async function createRoomConnection(
     const fromSide = normalizeRoomConnectionSide(sides?.fromSide);
     const toSide = normalizeRoomConnectionSide(sides?.toSide);
     const pairKey = getRoomConnectionPairKey(from, to);
-    const existing = room.connections.find((connection) => getRoomConnectionPairKey(connection.from, connection.to) === pairKey);
+    const existing = room.connections.find(
+      (connection) => getRoomConnectionPairKey(connection.from, connection.to) === pairKey,
+    );
 
     if (existing) {
       const previousFromSide = existing.fromSide;

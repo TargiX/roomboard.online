@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { canEditRoom } from "@/lib/canvasRoom";
-import { checkRateLimit, getRequestClientKey } from "@/lib/requestRateLimit";
+import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
 import { uploadRoomImage } from "@/lib/roomboardUploads";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Editor access is required." }, { status: 403 });
   }
 
-  const rateLimit = checkRateLimit(`uploads:${getRequestClientKey(request)}`, IMAGE_UPLOAD_LIMIT_PER_HOUR, 60 * 60 * 1000);
+  const rateLimit = await checkRateLimitDistributed(
+    `uploads:${getRequestClientKey(request)}`,
+    IMAGE_UPLOAD_LIMIT_PER_HOUR,
+    60 * 60 * 1000,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

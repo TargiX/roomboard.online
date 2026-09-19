@@ -32,10 +32,13 @@ export function dismissRoomLaunchGuide(roomId: string, storage = getBrowserStora
   }
 
   try {
-    storage.setItem(dismissedLaunchGuidesKey, JSON.stringify({
-      ...readDismissedLaunchGuides(storage),
-      [roomId]: true,
-    }));
+    storage.setItem(
+      dismissedLaunchGuidesKey,
+      JSON.stringify({
+        ...readDismissedLaunchGuides(storage),
+        [roomId]: true,
+      }),
+    );
     return true;
   } catch {
     return false;

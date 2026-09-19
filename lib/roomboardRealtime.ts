@@ -1,11 +1,7 @@
 import { Socket } from "phoenix";
 import type { RoomComment, RoomConnection, RoomItem, RoomSummary } from "@/lib/canvasRoom";
 import type { PresenceSnapshot } from "@/lib/presence";
-import {
-  normalizeEndpoint,
-  presenceStateToSnapshots,
-  type PresenceState,
-} from "./realtimeHelpers";
+import { normalizeEndpoint, presenceStateToSnapshots, type PresenceState } from "./realtimeHelpers";
 import { createPendingRoomEventQueue } from "./roomboardRealtimeQueue";
 
 const roomboardRealtimeJoinTimeoutMs = 45_000;
@@ -61,8 +57,12 @@ type RoomboardBoardEventPayload = RoomboardBoardEventInput & {
 
 type RoomboardRealtimeOptions = {
   accessToken?: string | null;
+  /** Optional async token refresher invoked before each channel rejoin so a
+   *  reconnect after the 10-minute token TTL does not loop on unauthorized. */
+  getAccessToken?: () => Promise<string | null>;
   endpoint: string;
   onBoardEvent: (event: RoomboardBoardEventPayload) => void;
+  onPresenceLeave?: (ids: string[]) => void;
   onPresenceState: (presence: PresenceSnapshot[]) => void;
   onPresenceUpdate: (presence: PresenceSnapshot) => void;
   onStatusChange?: (status: RoomboardRealtimeStatus) => void;
@@ -83,8 +83,10 @@ export type RoomboardRealtimeSession = {
  */
 export function createRoomboardRealtimeSession({
   accessToken,
+  getAccessToken,
   endpoint,
   onBoardEvent,
+  onPresenceLeave,
   onPresenceState,
   onPresenceUpdate,
   onStatusChange,
@@ -100,12 +102,34 @@ export function createRoomboardRealtimeSession({
     },
     timeout: roomboardRealtimeJoinTimeoutMs,
   });
-  const channel = socket.channel(`room:${roomId}`, {
-    accessToken,
+  let currentAccessToken = accessToken;
+  const channel = socket.channel(`room:${roomId}`, () => ({
+    accessToken: currentAccessToken,
     focus: "canvas",
     x: 0,
     y: 0,
-  });
+  }));
+
+  // Phoenix rejoins with the payload captured at channel creation; refresh the
+  // token first so reconnects past the 10-minute TTL do not loop on
+  // unauthorized_room. `params` above is a function, so the refreshed value is
+  // picked up by the next joinPush automatically.
+  if (getAccessToken) {
+    const internal = channel as unknown as {
+      rejoin: (timeout?: number) => void;
+    };
+    const originalRejoin = internal.rejoin.bind(channel);
+    internal.rejoin = (timeout?: number) => {
+      void getAccessToken()
+        .then((token) => {
+          if (token) {
+            currentAccessToken = token;
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => originalRejoin(timeout));
+    };
+  }
   const pendingRoomEvents = createPendingRoomEventQueue();
   let status: RoomboardRealtimeStatus = "connecting";
   let manuallyClosed = false;
@@ -150,12 +174,18 @@ export function createRoomboardRealtimeSession({
       degrade();
     }
   });
-
   channel.on("presence_state", (payload: PresenceState) => {
     onPresenceState(presenceStateToSnapshots(payload));
   });
-  channel.on("presence:update", (payload: PresenceSnapshot) => {
-    onPresenceUpdate(payload);
+  channel.on("presence_diff", (payload: { joins?: PresenceState; leaves?: PresenceState }) => {
+    for (const snapshot of presenceStateToSnapshots(payload.joins ?? {})) {
+      onPresenceUpdate(snapshot);
+    }
+
+    const leftIds = Object.keys(payload.leaves ?? {});
+    if (leftIds.length > 0) {
+      onPresenceLeave?.(leftIds);
+    }
   });
   channel.on("room:event", (payload: RoomboardBoardEventPayload) => {
     if (payload.clientId === sessionId) return;

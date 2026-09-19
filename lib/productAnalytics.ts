@@ -182,7 +182,9 @@ export function captureCampaignAttribution(context: ProductEventProperties = {})
     ...context,
     ...(safeLandingPath ? { landingPath: safeLandingPath } : {}),
   };
-  const hasContext = Object.values(contextWithPath).some((value) => value !== undefined && value !== null && value !== "");
+  const hasContext = Object.values(contextWithPath).some(
+    (value) => value !== undefined && value !== null && value !== "",
+  );
   const storedAttribution = readStoredCampaignAttribution();
 
   if (!hasCampaignParams && !hasContext) {

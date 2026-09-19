@@ -172,10 +172,7 @@ describe("captureCampaignAttribution", () => {
         landingPath: "/for/landing-review",
         landingStarter: "landing-review",
       });
-      assert.equal(
-        browser.localStorage.getItem("roomboard-campaign-attribution"),
-        JSON.stringify(attribution),
-      );
+      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify(attribution));
       assert.deepEqual(analyticsEvents, [
         {
           data: attribution,
@@ -252,10 +249,7 @@ describe("captureCampaignAttribution", () => {
         campaignSource: "first_batch",
         landingStarter: "blank",
       });
-      assert.equal(
-        browser.localStorage.getItem("roomboard-campaign-attribution"),
-        JSON.stringify(attribution),
-      );
+      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify(attribution));
       assert.deepEqual(analyticsEvents, [
         {
           data: attribution,

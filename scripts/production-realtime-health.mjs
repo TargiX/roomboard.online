@@ -14,7 +14,9 @@ export function normalizeBaseUrl(value = defaultBaseUrl) {
 
 export function normalizeRealtimeEndpoint(value) {
   if (!value || typeof value !== "string") {
-    throw new Error("Production realtime endpoint is missing. Set NEXT_PUBLIC_ROOMBOARD_REALTIME_URL or PRODUCTION_REALTIME_ENDPOINT.");
+    throw new Error(
+      "Production realtime endpoint is missing. Set NEXT_PUBLIC_ROOMBOARD_REALTIME_URL or PRODUCTION_REALTIME_ENDPOINT.",
+    );
   }
 
   const url = new URL(value);
@@ -111,7 +113,9 @@ export async function runProductionRealtimeHealth({ baseUrl, realtimeEndpoint, t
 
 async function main() {
   const result = await runProductionRealtimeHealth();
-  console.log(`Production realtime health passed: ${result.baseUrl} points at ${result.endpoint}, and /health reports roomboard_realtime.`);
+  console.log(
+    `Production realtime health passed: ${result.baseUrl} points at ${result.endpoint}, and /health reports roomboard_realtime.`,
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
