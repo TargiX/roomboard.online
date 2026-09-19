@@ -13,8 +13,5 @@ export const serverRealtimeFallbackStreamDisabledInit = {
 } as const;
 
 export function isServerRealtimeFallbackAllowed() {
-  return (
-    process.env.NODE_ENV !== "production" ||
-    process.env.ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK === "true"
-  );
+  return process.env.NODE_ENV !== "production" || process.env.ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK === "true";
 }

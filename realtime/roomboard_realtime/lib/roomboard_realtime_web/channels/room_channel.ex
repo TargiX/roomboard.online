@@ -15,7 +15,9 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
     room:closed
   )
   @max_room_event_bytes 80_000
-  @presence_ttl_ms 15_000
+  @presence_min_interval_ms 40
+  @room_event_window_ms 1_000
+  @room_event_max_per_window 40
 
   @impl true
   def join("room:" <> room_id, payload, socket) do
@@ -23,20 +25,29 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
       not valid_room_id?(room_id) ->
         {:error, %{reason: "invalid_room"}}
 
-      not authorized_room_join?(room_id, payload) ->
-        {:error, %{reason: "unauthorized_room"}}
-
       true ->
-        socket =
-          socket
-          |> assign(:room_id, room_id)
-          |> assign(:focus, clean_string(payload["focus"], 120) || "canvas")
-          |> assign(:x, clean_number(payload["x"]) || 0)
-          |> assign(:y, clean_number(payload["y"]) || 0)
+        case authorized_room_role(room_id, payload) do
+          {:ok, role} ->
+            socket =
+              socket
+              |> assign(:room_id, room_id)
+              |> assign(:role, role)
+              |> assign(:focus, clean_string(payload["focus"], 120) || "canvas")
+              |> assign(:x, clean_number(payload["x"]) || 0)
+              |> assign(:y, clean_number(payload["y"]) || 0)
+              |> assign(:selection, clean_string(payload["selection"], 96))
+              |> assign(:presence_sent_at, 0)
+              |> assign(:presence_flush_scheduled, false)
+              |> assign(:room_event_window_start, 0)
+              |> assign(:room_event_count, 0)
 
-        send(self(), :after_join)
+            send(self(), :after_join)
 
-        {:ok, %{roomId: room_id}, socket}
+            {:ok, %{roomId: room_id}, socket}
+
+          :error ->
+            {:error, %{reason: "unauthorized_room"}}
+        end
     end
   end
 
@@ -47,6 +58,11 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
     {:noreply, socket}
   end
 
+  def handle_info(:presence_flush, socket) do
+    socket = assign(socket, :presence_flush_scheduled, false)
+    :ok = update_presence(socket)
+    {:noreply, assign(socket, :presence_sent_at, now_ms())}
+  end
   @impl true
   def handle_in("presence:update", payload, socket) do
     socket =
@@ -54,15 +70,22 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
       |> assign(:focus, clean_string(payload["focus"], 120) || socket.assigns.focus)
       |> assign(:x, clean_number(payload["x"]) || socket.assigns.x)
       |> assign(:y, clean_number(payload["y"]) || socket.assigns.y)
+      |> assign(:selection, clean_string(payload["selection"], 96))
 
-    :ok = update_presence(socket)
+    # Phoenix.Presence fans updates out as presence_diff, so the CRDT write is
+    # the expensive part — throttle it and coalesce bursts into a trailing
+    # flush instead of broadcasting every cursor tick.
+    socket = throttle_presence(socket)
 
-    broadcast!(socket, "presence:update", presence_payload(socket))
     {:reply, {:ok, %{presence: presence_payload(socket)}}, socket}
   end
 
   def handle_in("room:event", payload, socket) when is_map(payload) do
-    with :ok <- validate_room_event(payload) do
+    {rate_result, socket} = check_room_event_rate(socket)
+
+    with :ok <- require_editor_role(socket),
+         :ok <- rate_result,
+         :ok <- validate_room_event(payload) do
       event =
         payload
         |> Map.take([
@@ -92,6 +115,53 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
   defp track(socket) do
     Presence.track(socket, socket.assigns.user_id, presence_payload(socket))
   end
+
+  defp throttle_presence(socket) do
+    now = now_ms()
+    elapsed = now - socket.assigns.presence_sent_at
+
+    cond do
+      elapsed >= @presence_min_interval_ms ->
+        :ok = update_presence(socket)
+        assign(socket, :presence_sent_at, now)
+
+      socket.assigns.presence_flush_scheduled ->
+        socket
+
+      true ->
+        Process.send_after(self(), :presence_flush, @presence_min_interval_ms - elapsed)
+        assign(socket, :presence_flush_scheduled, true)
+    end
+  end
+
+  defp require_editor_role(socket) do
+    if socket.assigns.role == "viewer" do
+      {:error, "viewer_read_only"}
+    else
+      :ok
+    end
+  end
+
+  defp check_room_event_rate(socket) do
+    now = now_ms()
+
+    if now - socket.assigns.room_event_window_start >= @room_event_window_ms do
+      {:ok,
+       socket
+       |> assign(:room_event_window_start, now)
+       |> assign(:room_event_count, 1)}
+    else
+      count = socket.assigns.room_event_count + 1
+      socket = assign(socket, :room_event_count, count)
+
+      if count > @room_event_max_per_window do
+        {{:error, "rate_limited"}, socket}
+      else
+        {:ok, socket}
+      end
+    end
+  end
+
 
   defp update_presence(socket) do
     case Presence.update(socket, socket.assigns.user_id, presence_payload(socket)) do
@@ -136,10 +206,10 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
       name: socket.assigns.name,
       color: socket.assigns.color,
       focus: socket.assigns.focus,
+      selection: socket.assigns.selection,
       x: socket.assigns.x,
       y: socket.assigns.y,
-      updatedAt: now_ms(),
-      expiresAt: now_ms() + @presence_ttl_ms
+      updatedAt: now_ms()
     }
   end
 
@@ -147,7 +217,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
     String.match?(room_id, ~r/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,96}$/)
   end
 
-  defp authorized_room_join?(room_id, payload) do
+  defp authorized_room_role(room_id, payload) do
     secret = realtime_secret()
 
     cond do
@@ -155,10 +225,10 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
         verify_access_token(clean_string(payload["accessToken"], 2_400), room_id, secret)
 
       prod_auth_required?() ->
-        false
+        :error
 
       true ->
-        true
+        {:ok, "editor"}
     end
   end
 
@@ -171,7 +241,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
       System.get_env("ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS") != "true"
   end
 
-  defp verify_access_token(nil, _room_id, _secret), do: false
+  defp verify_access_token(nil, _room_id, _secret), do: :error
 
   defp verify_access_token(token, room_id, secret) do
     with [encoded_payload, signature] <- String.split(token, ".", parts: 2),
@@ -180,9 +250,9 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
          {:ok, payload} <- Jason.decode(json),
          %{"v" => "rb1", "roomId" => ^room_id, "role" => role, "exp" => exp} <- payload,
          true <- is_binary(role) and is_number(exp) and exp > now_ms() do
-      true
+      {:ok, if(role in ["owner", "editor", "viewer"], do: role, else: "editor")}
     else
-      _ -> false
+      _ -> :error
     end
   end
 
