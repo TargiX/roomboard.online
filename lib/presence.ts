@@ -6,6 +6,8 @@ export type PresenceSnapshot = {
   name: string;
   color: string;
   focus: string;
+  /** Item id the collaborator currently has selected, if any. */
+  selection?: string;
   x: number;
   y: number;
   updatedAt: number;
@@ -40,6 +42,19 @@ function getSnapshots(roomId: string) {
   return snapshotsByRoom.get(roomId)!;
 }
 
+/** Drop a room's map entries once both snapshots and clients are empty so the
+ * outer maps don't accumulate one empty entry per room ever visited. */
+function pruneRoom(roomId: string) {
+  const snapshots = snapshotsByRoom.get(roomId);
+  if (snapshots && snapshots.size === 0) {
+    snapshotsByRoom.delete(roomId);
+  }
+  const clients = clientsByRoom.get(roomId);
+  if (clients && clients.size === 0) {
+    clientsByRoom.delete(roomId);
+  }
+}
+
 export function listPresence(roomId = DEFAULT_ROOM_ID) {
   const now = Date.now();
   const snapshots = getSnapshots(roomId);
@@ -49,6 +64,8 @@ export function listPresence(roomId = DEFAULT_ROOM_ID) {
       snapshots.delete(id);
     }
   }
+
+  pruneRoom(roomId);
 
   return Array.from(snapshots.values()).sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -105,6 +122,7 @@ export function createPresenceStream(roomId = DEFAULT_ROOM_ID) {
           clients.delete(client);
         }
       }
+      pruneRoom(roomId);
     },
   });
 

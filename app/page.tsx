@@ -1,5 +1,4 @@
 import { LandingPage } from "@/components/LandingPage";
-import { listRooms } from "@/lib/canvasRoom";
 
 export const dynamic = "force-dynamic";
 
@@ -44,11 +43,5 @@ function readEntryIntent(params: Awaited<HomeSearchParams>): StarterId | undefin
 export default async function HomePage({ searchParams }: { searchParams: HomeSearchParams }) {
   const params = await searchParams;
 
-  return (
-    <LandingPage
-      entryIntent={readEntryIntent(params)}
-      initialRooms={await listRooms()}
-      initialStarter={readInitialStarter(params)}
-    />
-  );
+  return <LandingPage entryIntent={readEntryIntent(params)} initialStarter={readInitialStarter(params)} />;
 }

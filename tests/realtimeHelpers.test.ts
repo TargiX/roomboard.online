@@ -107,25 +107,32 @@ describe("normalizeEndpoint", () => {
 describe("presenceStateToSnapshots", () => {
   it("flattens Phoenix presence state into a flat snapshot list", () => {
     const state: PresenceState = {
-      "u1": { metas: [snapshot({ id: "u1" }), snapshot({ id: "u1", x: 99 })] },
-      "u2": { metas: [snapshot({ id: "u2" })] },
+      u1: { metas: [snapshot({ id: "u1" }), snapshot({ id: "u1", x: 99 })] },
+      u2: { metas: [snapshot({ id: "u2" })] },
     };
 
     assert.equal(presenceStateToSnapshots(state).length, 3);
   });
 
   it("drops meta entries that have no id so no faceless collaborator renders", () => {
-    const malformed = { name: "ghost", color: "#000", focus: "canvas", x: 0, y: 0, updatedAt: 0 } as unknown as PresenceSnapshot;
+    const malformed = {
+      name: "ghost",
+      color: "#000",
+      focus: "canvas",
+      x: 0,
+      y: 0,
+      updatedAt: 0,
+    } as unknown as PresenceSnapshot;
     const state: PresenceState = {
-      "u1": { metas: [{ ...snapshot(), id: "" }] },
-      "u2": { metas: [malformed] },
+      u1: { metas: [{ ...snapshot(), id: "" }] },
+      u2: { metas: [malformed] },
     };
 
     assert.deepEqual(presenceStateToSnapshots(state), []);
   });
 
   it("treats a missing metas array as an empty entry", () => {
-    assert.deepEqual(presenceStateToSnapshots({ "u1": {} }), []);
+    assert.deepEqual(presenceStateToSnapshots({ u1: {} }), []);
   });
 });
 
@@ -137,7 +144,10 @@ describe("mergePresenceSnapshots", () => {
 
     const result = mergePresenceSnapshots([stale, fresh], []);
 
-    assert.deepEqual(result.map((s) => s.id), ["fresh"]);
+    assert.deepEqual(
+      result.map((s) => s.id),
+      ["fresh"],
+    );
   });
 
   it("keeps a collaborator that is comfortably within the TTL", () => {
@@ -146,7 +156,10 @@ describe("mergePresenceSnapshots", () => {
 
     const result = mergePresenceSnapshots([edge], []);
 
-    assert.deepEqual(result.map((s) => s.id), ["edge"]);
+    assert.deepEqual(
+      result.map((s) => s.id),
+      ["edge"],
+    );
   });
 
   it("lets a newer incoming update win over a stale current one for the same id", () => {
@@ -177,7 +190,10 @@ describe("mergePresenceSnapshots", () => {
 
     const result = mergePresenceSnapshots([oldest, middle], [newest]);
 
-    assert.deepEqual(result.map((s) => s.id), ["new", "mid", "old"]);
+    assert.deepEqual(
+      result.map((s) => s.id),
+      ["new", "mid", "old"],
+    );
   });
 
   it("merges disjoint collaborator ids from current and incoming", () => {

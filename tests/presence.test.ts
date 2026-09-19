@@ -98,10 +98,7 @@ function withFrozenClock<T>(frozenNow: number, run: () => T): T {
  * it. Cancelling every reader in a finally block tears the streams down
  * either way (reader.cancel() is idempotent for already-cancelled readers).
  */
-async function withReaders(
-  readers: ReadableStreamDefaultReader<Uint8Array>[],
-  run: () => Promise<void>,
-) {
+async function withReaders(readers: ReadableStreamDefaultReader<Uint8Array>[], run: () => Promise<void>) {
   try {
     await run();
   } finally {
@@ -125,10 +122,7 @@ describe("listPresence", () => {
 
   it("evicts snapshots older than the presence TTL", () => {
     const room = freshRoom();
-    publishPresence(
-      snapshot({ id: "stale", updatedAt: Date.now() - 60_000 }),
-      room,
-    );
+    publishPresence(snapshot({ id: "stale", updatedAt: Date.now() - 60_000 }), room);
 
     assert.equal(listPresence(room).length, 0);
   });
@@ -142,14 +136,8 @@ describe("listPresence", () => {
     const room = freshRoom();
     const now = Date.now();
     withFrozenClock(now, () => {
-      publishPresence(
-        snapshot({ id: "edge", updatedAt: now - PRESENCE_TTL_MS }),
-        room,
-      );
-      publishPresence(
-        snapshot({ id: "fresh", updatedAt: now - PRESENCE_TTL_MS + 1 }),
-        room,
-      );
+      publishPresence(snapshot({ id: "edge", updatedAt: now - PRESENCE_TTL_MS }), room);
+      publishPresence(snapshot({ id: "fresh", updatedAt: now - PRESENCE_TTL_MS + 1 }), room);
 
       assert.deepEqual(
         listPresence(room).map((entry) => entry.id),
@@ -172,14 +160,8 @@ describe("listPresence", () => {
 
   it("replaces a snapshot when the same participant publishes again", () => {
     const room = freshRoom();
-    publishPresence(
-      snapshot({ id: "u1", name: "Ada", updatedAt: Date.now() }),
-      room,
-    );
-    publishPresence(
-      snapshot({ id: "u1", name: "Ada Renamed", updatedAt: Date.now() }),
-      room,
-    );
+    publishPresence(snapshot({ id: "u1", name: "Ada", updatedAt: Date.now() }), room);
+    publishPresence(snapshot({ id: "u1", name: "Ada Renamed", updatedAt: Date.now() }), room);
 
     const listed = listPresence(room);
 
@@ -201,10 +183,7 @@ describe("removePresence", () => {
 describe("createPresenceStream", () => {
   it("sends the current presence list on subscribe, excluding stale entries", async () => {
     const room = freshRoom();
-    publishPresence(
-      snapshot({ id: "stale", updatedAt: Date.now() - 60_000 }),
-      room,
-    );
+    publishPresence(snapshot({ id: "stale", updatedAt: Date.now() - 60_000 }), room);
     publishPresence(snapshot({ id: "seeded", updatedAt: Date.now() }), room);
 
     const reader = createPresenceStream(room).getReader();
@@ -257,10 +236,7 @@ describe("createPresenceStream", () => {
       await closeReader(cancelledReader);
       await readFrame(survivorReader); // drain the initial presence frame
 
-      publishPresence(
-        snapshot({ id: "after-cancel", updatedAt: Date.now() }),
-        room,
-      );
+      publishPresence(snapshot({ id: "after-cancel", updatedAt: Date.now() }), room);
 
       // The cancelled subscriber must not receive the broadcast…
       const drained = await cancelledReader.read();

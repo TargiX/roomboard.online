@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type {
-  RoomActivity,
-  RoomConnection,
-  RoomItem,
-  RoomItemStatus,
-} from "@/lib/canvasRoom";
+import type { RoomActivity, RoomConnection, RoomItem, RoomItemStatus } from "@/lib/canvasRoom";
 import { buildRoomSnapshotDecisionUpdate } from "@/lib/roomSnapshotDecisionUpdate";
 
 type StatusCounts = Record<RoomItemStatus, number>;
@@ -29,10 +24,7 @@ type RoomSnapshotViewProps = {
   capturedRelative: string;
 };
 
-const STATUS_META: Record<
-  RoomItemStatus,
-  { label: string; color: string; bg: string }
-> = {
+const STATUS_META: Record<RoomItemStatus, { label: string; color: string; bg: string }> = {
   open: { label: "Open", color: "#0ea5e9", bg: "rgba(14,165,233,0.14)" },
   reviewing: {
     label: "Reviewing",
@@ -65,13 +57,14 @@ function buildSnapshotDecisionBrief(items: RoomItem[]) {
     .sort((a, b) => priority[a.status] - priority[b.status] || b.updatedAt - a.updatedAt)
     .slice(0, 3)
     .map((item) => ({ id: item.id, status: item.status, title: item.title.trim() || "Untitled card" }));
-  const headline = revisionCount > 0
-    ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
-    : pendingCount > 0
-      ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
-      : items.length > 0
-        ? "Every card has a decision. This room is ready to share."
-        : "This board is ready for its first decision.";
+  const headline =
+    revisionCount > 0
+      ? `${revisionCount} ${revisionCount === 1 ? "card needs" : "cards need"} revisions before the decision is final.`
+      : pendingCount > 0
+        ? `${pendingCount} ${pendingCount === 1 ? "card still needs" : "cards still need"} a decision.`
+        : items.length > 0
+          ? "Every card has a decision. This room is ready to share."
+          : "This board is ready for its first decision.";
 
   return { approvedCount, headline, nextStep: nextSteps[0], pendingCount, revisionCount, nextSteps };
 }
@@ -108,17 +101,21 @@ export function RoomSnapshotView({
   const handleCopyDecisionUpdate = useCallback(() => {
     if (!navigator.clipboard?.writeText) return;
 
-    navigator.clipboard.writeText(buildRoomSnapshotDecisionUpdate({
-      items,
-      roomName,
-      snapshotUrl: window.location.href,
-    })).then(
-      () => {
-        setCopiedDecisionUpdate(true);
-        setTimeout(() => setCopiedDecisionUpdate(false), 2000);
-      },
-      () => {},
-    );
+    navigator.clipboard
+      .writeText(
+        buildRoomSnapshotDecisionUpdate({
+          items,
+          roomName,
+          snapshotUrl: window.location.href,
+        }),
+      )
+      .then(
+        () => {
+          setCopiedDecisionUpdate(true);
+          setTimeout(() => setCopiedDecisionUpdate(false), 2000);
+        },
+        () => {},
+      );
   }, [items, roomName]);
 
   // Compute board bounds from item positions.
@@ -133,10 +130,7 @@ export function RoomSnapshotView({
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    const positions = new Map<
-      string,
-      { x: number; y: number; cx: number; cy: number }
-    >();
+    const positions = new Map<string, { x: number; y: number; cx: number; cy: number }>();
 
     for (const item of items) {
       minX = Math.min(minX, item.x);
@@ -163,14 +157,9 @@ export function RoomSnapshotView({
     };
   }, [items]);
 
-  const totalComments = useMemo(
-    () => items.reduce((sum, item) => sum + item.comments.length, 0),
-    [items],
-  );
+  const totalComments = useMemo(() => items.reduce((sum, item) => sum + item.comments.length, 0), [items]);
 
-  const activeStatuses = (Object.keys(statusCounts) as RoomItemStatus[]).filter(
-    (s) => statusCounts[s] > 0,
-  );
+  const activeStatuses = (Object.keys(statusCounts) as RoomItemStatus[]).filter((s) => statusCounts[s] > 0);
   const decisionBrief = useMemo(() => buildSnapshotDecisionBrief(items), [items]);
 
   return (
@@ -210,23 +199,13 @@ export function RoomSnapshotView({
           {participants.length > 0 && (
             <div className="snapshot-participants" aria-label="Participants">
               {participants.slice(0, 5).map((p, i) => (
-                <span
-                  key={`${p.name}-${i}`}
-                  className="snapshot-avatar"
-                  style={{ background: p.color }}
-                  title={p.name}
-                >
+                <span key={`${p.name}-${i}`} className="snapshot-avatar" style={{ background: p.color }} title={p.name}>
                   {p.name.slice(0, 1).toUpperCase()}
                 </span>
               ))}
             </div>
           )}
-          <button
-            type="button"
-            className="snapshot-copy-btn"
-            onClick={handleCopyLink}
-            aria-label="Copy snapshot link"
-          >
+          <button type="button" className="snapshot-copy-btn" onClick={handleCopyLink} aria-label="Copy snapshot link">
             {copied ? "✓ Copied" : "Copy link"}
           </button>
           <button
@@ -257,12 +236,32 @@ export function RoomSnapshotView({
         }}
       >
         <div style={{ flex: "1 1 20rem", minWidth: 0 }}>
-          <p style={{ color: "var(--muted)", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.1em", margin: 0, textTransform: "uppercase" }}>
+          <p
+            style={{
+              color: "var(--muted)",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              margin: 0,
+              textTransform: "uppercase",
+            }}
+          >
             Decision brief
           </p>
           <p style={{ fontSize: "1rem", fontWeight: 650, margin: "6px 0 0" }}>{decisionBrief.headline}</p>
         </div>
-        <div style={{ alignItems: "flex-start", display: "flex", flex: "0 1 auto", flexWrap: "wrap", gap: 8, justifyContent: "flex-end", maxWidth: "100%", minWidth: 0 }}>
+        <div
+          style={{
+            alignItems: "flex-start",
+            display: "flex",
+            flex: "0 1 auto",
+            flexWrap: "wrap",
+            gap: 8,
+            justifyContent: "flex-end",
+            maxWidth: "100%",
+            minWidth: 0,
+          }}
+        >
           <span className="snapshot-status-chip" style={{ color: "#10b981", background: "rgba(16,185,129,0.14)" }}>
             Approved · {decisionBrief.approvedCount}
           </span>
@@ -303,15 +302,29 @@ export function RoomSnapshotView({
                 padding: "9px 12px",
               }}
             >
-              <span style={{ color: STATUS_META[decisionBrief.nextStep.status].color, fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Start here</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decisionBrief.nextStep.title}</span>
-              <span aria-hidden style={{ color: STATUS_META[decisionBrief.nextStep.status].color }}>↓</span>
+              <span
+                style={{
+                  color: STATUS_META[decisionBrief.nextStep.status].color,
+                  fontSize: "0.72rem",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Start here
+              </span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {decisionBrief.nextStep.title}
+              </span>
+              <span aria-hidden style={{ color: STATUS_META[decisionBrief.nextStep.status].color }}>
+                ↓
+              </span>
             </a>
           )}
           <ol style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", margin: 0, paddingLeft: 18 }}>
             {decisionBrief.nextSteps.map((item) => (
               <li key={item.id} style={{ color: "var(--text)", fontSize: "0.88rem" }}>
-                {item.title} <span style={{ color: STATUS_META[item.status].color }}>· {STATUS_META[item.status].label}</span>
+                {item.title}{" "}
+                <span style={{ color: STATUS_META[item.status].color }}>· {STATUS_META[item.status].label}</span>
               </li>
             ))}
           </ol>
@@ -325,17 +338,9 @@ export function RoomSnapshotView({
         </div>
       ) : (
         <div className="snapshot-board-scroll">
-          <div
-            className="snapshot-board"
-            style={{ width: bounds.width, height: bounds.height }}
-          >
+          <div className="snapshot-board" style={{ width: bounds.width, height: bounds.height }}>
             {/* SVG connections layer */}
-            <svg
-              className="snapshot-connections"
-              width={bounds.width}
-              height={bounds.height}
-              aria-hidden
-            >
+            <svg className="snapshot-connections" width={bounds.width} height={bounds.height} aria-hidden>
               {connections.map((conn) => {
                 const from = itemPositions.get(conn.from);
                 const to = itemPositions.get(conn.to);
@@ -376,11 +381,7 @@ export function RoomSnapshotView({
                   {isImage && item.imageUrl ? (
                     <div className="snapshot-card-media">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title || "Card image"}
-                        loading="lazy"
-                      />
+                      <img src={item.imageUrl} alt={item.title || "Card image"} loading="lazy" />
                     </div>
                   ) : null}
                   <div className="snapshot-card-body">
@@ -389,22 +390,13 @@ export function RoomSnapshotView({
                         {meta.label}
                       </span>
                       {item.comments.length > 0 && (
-                        <span className="snapshot-card-comments">
-                          💬 {item.comments.length}
-                        </span>
+                        <span className="snapshot-card-comments">💬 {item.comments.length}</span>
                       )}
                     </div>
-                    {item.title && (
-                      <h3 className="snapshot-card-title">{item.title}</h3>
-                    )}
-                    {item.body && (
-                      <p className="snapshot-card-text">{item.body}</p>
-                    )}
+                    {item.title && <h3 className="snapshot-card-title">{item.title}</h3>}
+                    {item.body && <p className="snapshot-card-text">{item.body}</p>}
                     <div className="snapshot-card-author">
-                      <span
-                        className="snapshot-card-author-dot"
-                        style={{ background: item.color }}
-                      />
+                      <span className="snapshot-card-author-dot" style={{ background: item.color }} />
                       {item.author}
                     </div>
                   </div>
@@ -422,9 +414,7 @@ export function RoomSnapshotView({
           <ul>
             {activities.map((act) => (
               <li key={act.id}>
-                <span className="snapshot-activity-time">
-                  {act.timeLabel}
-                </span>
+                <span className="snapshot-activity-time">{act.timeLabel}</span>
                 <span className="snapshot-activity-actor">{act.actor}</span>
                 <span className="snapshot-activity-msg">{act.message}</span>
               </li>

@@ -2,7 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 
 export const roomboardUploadBucket = process.env.ROOMBOARD_UPLOAD_BUCKET ?? "roomboard-uploads";
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
-const SIGNED_UPLOAD_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
+// Signed URLs are re-minted on every room snapshot fetch, so they only need to
+// outlive a viewing session — a short TTL limits how long a leaked link works.
+const SIGNED_UPLOAD_URL_TTL_SECONDS = 60 * 60;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 export type RoomboardUploadStorageState = {
@@ -26,7 +28,10 @@ export type RoomUploadDeletionResult = {
 };
 
 type RoomUploadBucketClient = {
-  list: (path: string, options: { limit: number; offset: number; sortBy: { column: string; order: string } }) => Promise<{
+  list: (
+    path: string,
+    options: { limit: number; offset: number; sortBy: { column: string; order: string } },
+  ) => Promise<{
     data: Array<{ id?: string | null; name: string }> | null;
     error: unknown;
   }>;
@@ -226,9 +231,7 @@ export async function deleteRoomUploadObjects(bucket: RoomUploadBucketClient, ro
       throw error;
     }
 
-    const paths = (data ?? [])
-      .filter((entry) => entry.id)
-      .map((entry) => `${roomId}/${entry.name}`);
+    const paths = (data ?? []).filter((entry) => entry.id).map((entry) => `${roomId}/${entry.name}`);
 
     if (paths.length === 0) {
       return deleted;

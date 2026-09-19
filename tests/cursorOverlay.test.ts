@@ -66,10 +66,7 @@ class FakeLayer implements CursorLayerLike {
 type Harness = {
   layer: FakeLayer;
   created: FakeCursor[];
-  run: (
-    presence: PresenceSnapshot[],
-    world: { x: number; y: number; scale: number },
-  ) => number;
+  run: (presence: PresenceSnapshot[], world: { x: number; y: number; scale: number }) => number;
 };
 
 function harness(): Harness {
@@ -113,10 +110,11 @@ describe("getCursorScreenPosition", () => {
 describe("syncCursorsToPresence", () => {
   it("creates, labels, and projects one cursor per present peer", () => {
     const h = harness();
-    const moved = h.run(
-      [snapshot({ id: "u1", x: 10, y: 20 }), snapshot({ id: "u2", name: "Bob", x: -5, y: 0 })],
-      { x: 100, y: 50, scale: 2 },
-    );
+    const moved = h.run([snapshot({ id: "u1", x: 10, y: 20 }), snapshot({ id: "u2", name: "Bob", x: -5, y: 0 })], {
+      x: 100,
+      y: 50,
+      scale: 2,
+    });
 
     // Both fresh cursors move from the container origin to their projected spot.
     assert.equal(moved, 2);
@@ -162,10 +160,11 @@ describe("syncCursorsToPresence", () => {
 
   it("removes and destroys cursors whose peer left", () => {
     const h = harness();
-    h.run(
-      [snapshot({ id: "u1", x: 10, y: 20 }), snapshot({ id: "u2", name: "Bob", x: 5, y: 5 })],
-      { x: 0, y: 0, scale: 1 },
-    );
+    h.run([snapshot({ id: "u1", x: 10, y: 20 }), snapshot({ id: "u2", name: "Bob", x: 5, y: 5 })], {
+      x: 0,
+      y: 0,
+      scale: 1,
+    });
 
     const removed = h.run([snapshot({ id: "u2", name: "Bob", x: 5, y: 5 })], {
       x: 0,

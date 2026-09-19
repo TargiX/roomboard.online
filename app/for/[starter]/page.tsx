@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { LandingPage, type StarterId } from "@/components/LandingPage";
-import { listRooms } from "@/lib/canvasRoom";
 
 export const dynamic = "force-dynamic";
 
@@ -55,9 +54,7 @@ const starterAliases: Record<string, keyof typeof starterLandingConfigs> = {
 
 function readStarterLanding(slug: string) {
   const normalized = slug.toLowerCase().replace(/_/g, "-").trim();
-  const canonical = normalized in starterLandingConfigs
-    ? normalized
-    : starterAliases[normalized];
+  const canonical = normalized in starterLandingConfigs ? normalized : starterAliases[normalized];
 
   return canonical ? starterLandingConfigs[canonical] : null;
 }
@@ -109,5 +106,5 @@ export default async function ForStarterPage({ params }: ForStarterPageProps) {
     notFound();
   }
 
-  return <LandingPage entryIntent={config.starterId} initialRooms={await listRooms()} initialStarter={config.starterId} />;
+  return <LandingPage entryIntent={config.starterId} initialStarter={config.starterId} />;
 }

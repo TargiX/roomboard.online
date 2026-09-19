@@ -38,29 +38,35 @@ function normalizeOrigin(value = "") {
 function isUsableSupportEmail(value = "") {
   const normalized = value.trim().toLowerCase();
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) &&
+  return (
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) &&
     !normalized.includes("example.") &&
     !normalized.includes("your-") &&
-    !normalized.includes("replace-");
+    !normalized.includes("replace-")
+  );
 }
 
 function isHostedRealtimeEndpoint(value = "") {
   const origin = normalizeOrigin(value);
 
-  return origin.startsWith("https://") &&
+  return (
+    origin.startsWith("https://") &&
     !origin.includes("localhost") &&
     !origin.includes("127.0.0.1") &&
     !origin.includes("example.") &&
-    !origin.includes("your-");
+    !origin.includes("your-")
+  );
 }
 
 function isUsableStorageBucket(value = "") {
   const normalized = value.trim().toLowerCase();
 
-  return /^[a-z0-9][a-z0-9._-]{2,62}$/.test(normalized) &&
+  return (
+    /^[a-z0-9][a-z0-9._-]{2,62}$/.test(normalized) &&
     !normalized.includes("example") &&
     !normalized.includes("your-") &&
-    !normalized.includes("replace-");
+    !normalized.includes("replace-")
+  );
 }
 
 export function buildLaunchHealth(input: LaunchHealthInput) {
@@ -85,10 +91,12 @@ export function buildLaunchHealth(input: LaunchHealthInput) {
     },
     {
       key: "upload_storage",
-      ok: Boolean(input.uploadStorageConfigured) &&
+      ok:
+        Boolean(input.uploadStorageConfigured) &&
         Boolean(input.uploadStoragePrivate) &&
         isUsableStorageBucket(input.uploadBucket),
-      remediation: "Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ROOMBOARD_UPLOAD_BUCKET, and keep the upload bucket private.",
+      remediation:
+        "Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ROOMBOARD_UPLOAD_BUCKET, and keep the upload bucket private.",
       summary: "Image uploads use private Supabase storage with signed URLs.",
     },
     {
@@ -106,7 +114,8 @@ export function buildLaunchHealth(input: LaunchHealthInput) {
     {
       key: "server_realtime_fallback",
       ok: !input.serverRealtimeFallback,
-      remediation: "Unset ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK and NEXT_PUBLIC_ROOMBOARD_ALLOW_SERVER_FALLBACK in production.",
+      remediation:
+        "Unset ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK and NEXT_PUBLIC_ROOMBOARD_ALLOW_SERVER_FALLBACK in production.",
       summary: "Server realtime fallback is disabled for hosted production.",
     },
     {

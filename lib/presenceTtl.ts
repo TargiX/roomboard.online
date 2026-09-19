@@ -31,9 +31,7 @@ export function pruneStalePresence(
   now: number = Date.now(),
   ttlMs: number = PRESENCE_TTL_MS,
 ): PresenceSnapshot[] {
-  const fresh = snapshots.filter(
-    (snapshot) => now - snapshot.updatedAt < ttlMs,
-  );
+  const fresh = snapshots.filter((snapshot) => now - snapshot.updatedAt < ttlMs);
 
   if (fresh.length === snapshots.length) {
     return snapshots;

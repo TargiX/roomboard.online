@@ -16,11 +16,11 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
     %{room_id: room_id, socket: socket}
   end
 
-  defp signed_access_token(room_id, secret, exp \\ System.system_time(:millisecond) + 60_000, role \\ "editor") do
+  defp signed_access_token(room_id, secret, opts \\ []) do
     payload =
       %{
-        "exp" => exp,
-        "role" => role,
+        "exp" => Keyword.get(opts, :exp, System.system_time(:millisecond) + 60_000),
+        "role" => Keyword.get(opts, :role, "editor"),
         "roomId" => room_id,
         "v" => "rb1"
       }
@@ -32,6 +32,21 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
       |> Base.url_encode64(padding: false)
 
     "#{payload}.#{signature}"
+  end
+
+  defp with_realtime_secret(secret, fun) do
+    previous_secret = System.get_env("ROOMBOARD_REALTIME_SECRET")
+    System.put_env("ROOMBOARD_REALTIME_SECRET", secret)
+
+    try do
+      fun.()
+    after
+      if previous_secret do
+        System.put_env("ROOMBOARD_REALTIME_SECRET", previous_secret)
+      else
+        System.delete_env("ROOMBOARD_REALTIME_SECRET")
+      end
+    end
   end
 
   test "joins a room and pushes initial presence", %{room_id: room_id, socket: socket} do
@@ -62,27 +77,40 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
     socket: socket
   } do
     secret = "test-roomboard-realtime-secret"
-    previous_secret = System.get_env("ROOMBOARD_REALTIME_SECRET")
-    System.put_env("ROOMBOARD_REALTIME_SECRET", secret)
 
-    on_exit(fn ->
-      if previous_secret do
-        System.put_env("ROOMBOARD_REALTIME_SECRET", previous_secret)
-      else
-        System.delete_env("ROOMBOARD_REALTIME_SECRET")
-      end
+    with_realtime_secret(secret, fn ->
+      assert {:error, %{reason: "unauthorized_room"}} =
+               subscribe_and_join(socket, "room:#{room_id}", %{})
+
+      assert {:error, %{reason: "unauthorized_room"}} =
+               subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => "bad.token"})
+
+      token = signed_access_token(room_id, secret)
+
+      assert {:ok, %{roomId: ^room_id}, _socket} =
+               subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token})
     end)
+  end
 
-    assert {:error, %{reason: "unauthorized_room"}} =
-             subscribe_and_join(socket, "room:#{room_id}", %{})
+  test "rejects room events from viewer-role tokens", %{room_id: room_id, socket: socket} do
+    secret = "test-roomboard-realtime-secret"
 
-    assert {:error, %{reason: "unauthorized_room"}} =
-             subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => "bad.token"})
+    with_realtime_secret(secret, fn ->
+      token = signed_access_token(room_id, secret, role: "viewer")
 
-    token = signed_access_token(room_id, secret)
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token})
 
-    assert {:ok, %{roomId: ^room_id}, _socket} =
-             subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token})
+      assert_push "presence_state", _
+
+      ref =
+        push(socket, "room:event", %{
+          "type" => "item:deleted",
+          "itemId" => "note-1"
+        })
+
+      assert_reply ref, :error, %{reason: "viewer_read_only"}
+    end)
   end
 
   test "rejects a signed token whose role is not a string", %{
@@ -104,7 +132,7 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
     non_string_roles = [nil, 1, true, ["editor"]]
 
     for role <- non_string_roles do
-      token = signed_access_token(room_id, secret, System.system_time(:millisecond) + 60_000, role)
+      token = signed_access_token(room_id, secret, exp: System.system_time(:millisecond) + 60_000, role: role)
 
       assert {:error, %{reason: "unauthorized_room"}} =
                subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token}),
@@ -115,6 +143,9 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
   test "updates presence without retracking", %{room_id: room_id, socket: socket} do
     {:ok, _reply, socket} = subscribe_and_join(socket, "room:#{room_id}", %{})
     assert_push "presence_state", _
+
+    # The join itself fans out as a presence_diff; consume it first.
+    assert_broadcast "presence_diff", %{joins: %{"user-1" => _}}
 
     ref =
       push(socket, "presence:update", %{
@@ -128,13 +159,28 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
     assert presence.x == 48
     assert presence.y == 96
 
-    assert_broadcast "presence:update", %{
-      id: "user-1",
-      focus: "comment:alpha",
-      x: 48,
-      y: 96
-    }
+    # Presence fanout rides the Phoenix.Presence diff, not a manual broadcast.
+    assert_broadcast "presence_diff", %{joins: %{"user-1" => %{metas: [meta]}}}
+    assert meta.focus == "comment:alpha"
+    assert meta.x == 48
+    assert meta.y == 96
   end
+  test "rate limits room events beyond the per-second window", %{room_id: room_id, socket: socket} do
+    {:ok, _reply, socket} = subscribe_and_join(socket, "room:#{room_id}", %{})
+    assert_push "presence_state", _
+
+    refs =
+      for _ <- 1..41 do
+        push(socket, "room:event", %{
+          "type" => "item:moved",
+          "item" => %{"id" => "note-1", "x" => 1, "y" => 2}
+        })
+      end
+
+    last_ref = List.last(refs)
+    assert_reply last_ref, :error, %{reason: "rate_limited"}
+  end
+
 
   test "broadcasts room events with room metadata", %{room_id: room_id, socket: socket} do
     {:ok, _reply, socket} = subscribe_and_join(socket, "room:#{room_id}", %{})

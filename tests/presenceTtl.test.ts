@@ -46,17 +46,11 @@ describe("pruneStalePresence", () => {
     // Sort verification: after dropping the stale entry, the result must be
     // newest-first. We assert the full order rather than just length so the
     // no-op fast path can't accidentally regress this invariant.
-    assert.deepEqual(
-      pruneStalePresence([stale, older, newer], now),
-      [newer, older],
-    );
+    assert.deepEqual(pruneStalePresence([stale, older, newer], now), [newer, older]);
   });
 
   it("returns the same array reference when nothing is stale (no-op fast path)", () => {
-    const fresh = [
-      snapshot({ id: "a", updatedAt: now - 1_000 }),
-      snapshot({ id: "b", updatedAt: now - 2_000 }),
-    ];
+    const fresh = [snapshot({ id: "a", updatedAt: now - 1_000 }), snapshot({ id: "b", updatedAt: now - 2_000 })];
     assert.equal(pruneStalePresence(fresh, now), fresh);
   });
 

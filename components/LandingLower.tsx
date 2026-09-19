@@ -129,7 +129,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 function wrapRange(min: number, max: number, v: number) {
   const range = max - min;
-  return min + (((v - min) % range) + range) % range;
+  return min + ((((v - min) % range) + range) % range);
 }
 
 /** Section header: number + growing line + label. */
@@ -144,7 +144,10 @@ function SectionHead({ num, label }: { num: string; label: string }) {
     >
       <motion.span
         className="lx-shead__num"
-        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } } }}
+        variants={{
+          hidden: { opacity: 0, y: 12 },
+          show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+        }}
       >
         {num}
       </motion.span>
@@ -154,7 +157,10 @@ function SectionHead({ num, label }: { num: string; label: string }) {
       />
       <motion.span
         className="lx-shead__label"
-        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } } }}
+        variants={{
+          hidden: { opacity: 0, y: 12 },
+          show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+        }}
       >
         {label}
       </motion.span>
@@ -328,10 +334,23 @@ function Statement() {
 
   return (
     <section className="lx-statement" ref={ref}>
-      <motion.div className="lx-statement__chip lx-statement__chip--a" style={{ y: chipAY, rotate: chipARot }} aria-hidden="true">
-        <div className="bar"><i /><i /><i /></div>
+      <motion.div
+        className="lx-statement__chip lx-statement__chip--a"
+        style={{ y: chipAY, rotate: chipARot }}
+        aria-hidden="true"
+      >
+        <div className="bar">
+          <i />
+          <i />
+          <i />
+        </div>
         <div className="img">
-          <span className="nav"><b /><em /><em /><em /></span>
+          <span className="nav">
+            <b />
+            <em />
+            <em />
+            <em />
+          </span>
           <span className="hero" />
           <span className="ln ln--a" />
           <span className="ln ln--b" />
@@ -339,7 +358,11 @@ function Statement() {
         </div>
         <span className="cap">final_v2_REAL.png</span>
       </motion.div>
-      <motion.div className="lx-statement__chip lx-statement__chip--b" style={{ y: chipBY, rotate: chipBRot }} aria-hidden="true">
+      <motion.div
+        className="lx-statement__chip lx-statement__chip--b"
+        style={{ y: chipBY, rotate: chipBRot }}
+        aria-hidden="true"
+      >
         <b>#design-feedback</b>
         <span>“which version are we shipping??”</span>
         <em>47 replies · unresolved</em>
@@ -402,7 +425,9 @@ function HowPanel({
         <div className="lx-how__shotwrap">
           <motion.div className="lx-how__shot" style={{ y: imgY }}>
             <div className="lx-how__chrome">
-              <span /><span /><span />
+              <span />
+              <span />
+              <span />
               <b>roomboard.online</b>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -428,10 +453,7 @@ function HowItWorks() {
   const barScale = useTransform(scrollYProgress, [0.04, 0.96], [0, 1]);
 
   useMotionValueEvent(scrollYProgress, "change", (v) => {
-    const next = Math.min(
-      howPanels.length - 1,
-      Math.max(0, Math.round(((v - 0.04) / 0.92) * (howPanels.length - 1))),
-    );
+    const next = Math.min(howPanels.length - 1, Math.max(0, Math.round(((v - 0.04) / 0.92) * (howPanels.length - 1))));
     setStep(next);
   });
 
@@ -550,7 +572,14 @@ function SpecCursors() {
 
 function SpecRoles() {
   const roles = [
-    { initials: "YO", name: "You", sub: "creator token", pill: "Owner", cls: "own", bg: "linear-gradient(135deg,#c9a158,#8a6a33)" },
+    {
+      initials: "YO",
+      name: "You",
+      sub: "creator token",
+      pill: "Owner",
+      cls: "own",
+      bg: "linear-gradient(135deg,#c9a158,#8a6a33)",
+    },
     { initials: "M", name: "Maya", sub: "editor link", pill: "Editor", cls: "edit", bg: "#bd6a55" },
     { initials: "T", name: "Theo", sub: "viewer link", pill: "Viewer", cls: "view", bg: "#7d9c85" },
   ];
@@ -573,7 +602,9 @@ function SpecRoles() {
             show: { opacity: 1, x: 0, transition: { duration: 0.6, ease: EASE } },
           }}
         >
-          <span className="av" style={{ background: role.bg }}>{role.initials}</span>
+          <span className="av" style={{ background: role.bg }}>
+            {role.initials}
+          </span>
           <span className="who">
             <b>{role.name}</b>
             <i>{role.sub}</i>
@@ -599,7 +630,9 @@ function SpecLock() {
           animate={{ scale: [1, 1.9], opacity: [0.5, 0] }}
           transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut", delay: 1.1 }}
         />
-        <div className="ring"><Lock size={22} /></div>
+        <div className="ring">
+          <Lock size={22} />
+        </div>
       </div>
       <b>Decision locked</b>
       <span>Landing v2 · 4 approved</span>
@@ -632,7 +665,9 @@ function SpecThread() {
             show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.55, ease: EASE } },
           }}
         >
-          <span className="av" style={{ background: comment.bg }}>{comment.initials}</span>
+          <span className="av" style={{ background: comment.bg }}>
+            {comment.initials}
+          </span>
           <span className="tx">
             <b>{comment.name}</b>
             {comment.text}
@@ -756,13 +791,19 @@ function DeckCard({
 }) {
   const targetScale = 1 - (total - 1 - index) * 0.045;
   const scale = useTransform(progress, [index / total, 1], [1, targetScale]);
-  const dim = useTransform(progress, [(index + 0.35) / total, (index + 1) / total], [0, index === total - 1 ? 0 : 0.42]);
+  const dim = useTransform(
+    progress,
+    [(index + 0.35) / total, (index + 1) / total],
+    [0, index === total - 1 ? 0 : 0.42],
+  );
 
   return (
     <div className="lx-deck__slot" style={{ top: `${104 + index * 26}px` }}>
       <motion.article className={`lx-deck__card lx-deck__card--${useCase.tint}`} style={{ scale }}>
         <motion.div className="lx-deck__dim" style={{ opacity: dim }} aria-hidden="true" />
-        <span className="lx-deck__num" aria-hidden="true">0{index + 1}</span>
+        <span className="lx-deck__num" aria-hidden="true">
+          0{index + 1}
+        </span>
         <div className="lx-deck__body">
           <span className="lx-deck__label">{useCase.label}</span>
           <h3>{useCase.title}</h3>
@@ -775,7 +816,9 @@ function DeckCard({
               className="lx-deck__btn"
               type="button"
               disabled={isCreating}
-              onClick={() => startRoom({ name: useCase.roomName, source: `use_case_${useCase.id}`, starter: useCase.starterId })}
+              onClick={() =>
+                startRoom({ name: useCase.roomName, source: `use_case_${useCase.id}`, starter: useCase.starterId })
+              }
             >
               {useCase.cta}
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
@@ -845,9 +888,7 @@ function Faq() {
             <br />
             <em>Yours to reopen.</em>
           </motion.h2>
-          <p className="lx-faq__note">
-            No accounts, no public directory. Access lives in links you control.
-          </p>
+          <p className="lx-faq__note">No accounts, no public directory. Access lives in links you control.</p>
         </div>
         <div className="lx-faq__list">
           {faqItems.map((item, index) => (

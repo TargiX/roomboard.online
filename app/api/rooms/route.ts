@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
-import { createRoom, listRooms, roomStarterTemplates, type RoomAccess, type RoomStarterTemplate, type RoomVisibility } from "@/lib/canvasRoom";
-import { checkRateLimit, getRequestClientKey } from "@/lib/requestRateLimit";
+import {
+  createRoom,
+  listRooms,
+  roomStarterTemplates,
+  type RoomAccess,
+  type RoomStarterTemplate,
+  type RoomVisibility,
+} from "@/lib/canvasRoom";
+import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
 import { readJsonBody } from "@/lib/requestJson";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +32,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const rateLimit = checkRateLimit(`rooms:create:${getRequestClientKey(request)}`, ROOM_CREATE_LIMIT_PER_HOUR, 60 * 60 * 1000);
+  const rateLimit = await checkRateLimitDistributed(
+    `rooms:create:${getRequestClientKey(request)}`,
+    ROOM_CREATE_LIMIT_PER_HOUR,
+    60 * 60 * 1000,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

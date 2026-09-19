@@ -22,11 +22,16 @@ const attentionPriority: Record<Exclude<RoomDecisionCheckpoint["tone"], "ready">
 
 function actionForCheckpoint(checkpoint: RoomDecisionCheckpoint) {
   switch (checkpoint.tone) {
-    case "needs_changes": return "Review revisions";
-    case "needs_decision": return "Make a call";
-    case "reviewing": return "Finish review";
-    case "empty": return "Set the decision";
-    case "ready": return "Share recap";
+    case "needs_changes":
+      return "Review revisions";
+    case "needs_decision":
+      return "Make a call";
+    case "reviewing":
+      return "Finish review";
+    case "empty":
+      return "Set the decision";
+    case "ready":
+      return "Share recap";
   }
 }
 
@@ -43,8 +48,16 @@ export function getRoomDecisionQueue(
   const attention = ownedRooms
     .map((room) => ({ checkpoint: getRoomDecisionCheckpoint(room), room }))
     .filter((entry) => entry.checkpoint.tone !== "ready")
-    .sort((a, b) => getAttentionPriority(a.checkpoint.tone) - getAttentionPriority(b.checkpoint.tone) || b.room.updatedAt - a.room.updatedAt)
-    .map(({ checkpoint, room }) => ({ action: actionForCheckpoint(checkpoint), checkpoint, room: { id: room.id, name: room.name, updatedAt: room.updatedAt } }));
+    .sort(
+      (a, b) =>
+        getAttentionPriority(a.checkpoint.tone) - getAttentionPriority(b.checkpoint.tone) ||
+        b.room.updatedAt - a.room.updatedAt,
+    )
+    .map(({ checkpoint, room }) => ({
+      action: actionForCheckpoint(checkpoint),
+      checkpoint,
+      room: { id: room.id, name: room.name, updatedAt: room.updatedAt },
+    }));
 
   return { attention, ownedCount: ownedRooms.length, readyCount: ownedRooms.length - attention.length };
 }
