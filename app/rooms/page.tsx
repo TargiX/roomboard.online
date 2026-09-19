@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { RoomsDashboard } from "@/components/RoomsDashboard";
-import { listRooms } from "@/lib/canvasRoom";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default async function RoomsPage() {
-  return <RoomsDashboard initialRooms={await listRooms()} />;
+  return <RoomsDashboard />;
 }
