@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  buildRoomRecap,
-  getRoomSnapshot,
-  getRoomSummary,
-  type RoomCredentials,
-} from "@/lib/canvasRoom";
+import { buildRoomRecap, getRoomSnapshot, getRoomSummary, type RoomCredentials } from "@/lib/canvasRoom";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +47,8 @@ export async function GET(request: Request, { params }: RoomRecapRouteProps) {
   }
 
   const recap = buildRoomRecap(snapshot);
-  const wantsMarkdown = url.searchParams.get("format") === "markdown" || (request.headers.get("accept") ?? "").includes("text/markdown");
+  const wantsMarkdown =
+    url.searchParams.get("format") === "markdown" || (request.headers.get("accept") ?? "").includes("text/markdown");
 
   if (wantsMarkdown) {
     return new Response(recap.markdown, {

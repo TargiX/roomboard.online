@@ -17,10 +17,7 @@ async function upsertSubscription(subscription: Stripe.Subscription, session?: S
   const profileRow = buildBillingProfileRow(subscription, session);
 
   if (profileRow) {
-    await supabase
-      .from("roomboard_profiles")
-      .upsert(profileRow, { onConflict: "user_id" })
-      .throwOnError();
+    await supabase.from("roomboard_profiles").upsert(profileRow, { onConflict: "user_id" }).throwOnError();
   }
 
   const subscriptionRow = buildBillingSubscriptionRow(subscription, session);
