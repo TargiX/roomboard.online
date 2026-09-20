@@ -102,9 +102,11 @@ void main() {
   float combined = (n1 + n2 * noiseStrength) / (1.0 + noiseStrength);
   float thermal = combined * 0.5 + 0.5;
 
-  // Radial falloff concentrates the glow in the middle.
+  // Radial falloff concentrates the glow in the middle. Edges stay ordered
+  // (hotspot edge → outer edge): GLSL smoothstep is undefined when edge0 >=
+  // edge1, so the inverted-argument form is not portable.
   float dist = length(uv - 0.5);
-  float mask = smoothstep(0.9, hotspotSize, dist);
+  float mask = 1.0 - smoothstep(hotspotSize, 0.9, dist);
 
   // A slow extra modulation makes the hotspot breathe/migrate.
   float hotspotNoise = sin(p.x * 1.5 + time * 0.3 * speed) * cos(p.y * 1.5 - time * 0.4 * speed);
@@ -251,6 +253,12 @@ export function ThermalAura({
       }
       gl.viewport(0, 0, w, h);
       gl.uniform2f(u.resolution, w, h);
+      // Resizing clears the drawing buffer; in reduced-motion mode the
+      // animation loop never repaints it, so redraw the static frame here.
+      if (reduceMotion) {
+        gl.uniform1f(u.time, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
     };
     resize();
 
