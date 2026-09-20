@@ -1295,7 +1295,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       setIsSnapshotPublic(snapshot.room?.isSnapshotPublic === true);
       setPermissions(snapshot.permissions ?? defaultRoomPermissions);
       setInviteTokens(snapshot.inviteTokens ?? {});
-      setRealtimeAccessToken(snapshot.realtimeToken ?? null);
+      // Only set the token once — the channel's getAccessToken callback
+      // refreshes it internally on rejoin. Updating state on every snapshot
+      // would re-trigger the realtime effect and tear down the session.
+      setRealtimeAccessToken((current) => current ?? snapshot.realtimeToken ?? null);
       setItems(nextItems);
       setConnections(snapshot.connections || []);
       setActivities(snapshot.activities || []);
