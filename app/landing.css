@@ -3620,6 +3620,28 @@ body.landing::before {
   position: relative;
   padding: 0 0 32px;
   overflow: hidden;
+  /* Keep the thermal-aura backdrop (z-index: -1) inside the hero's own
+     stacking context so it can never paint behind the page background. */
+  isolation: isolate;
+}
+
+/* Animated thermal-aura backdrop behind the hero copy. A radial mask fades
+   it into the page background so it never reads as a box; it sits below the
+   static ::before/::after glow blobs, which stay as depth accents and as the
+   no-WebGL fallback. */
+.lp-hero__aura {
+  position: absolute;
+  inset: -64px 0 -96px;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 78% 68% at 46% 46%, #000 30%, transparent 72%);
+  mask-image: radial-gradient(ellipse 78% 68% at 46% 46%, #000 30%, transparent 72%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-hero__aura {
+    opacity: 0.85;
+  }
 }
 
 .lp-hero::before,
