@@ -117,6 +117,10 @@ When that variable is set, Roomboard loads the room snapshot once from Next, rec
 
 If the Phoenix sidecar cannot join or loses its socket during local development, the browser degrades to the same local SSE and BroadcastChannel fallback so room edits still flow through the persisted Next APIs. Production disables the server SSE fallback by default so hosted rooms do not hold Vercel Functions open; set `ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK=true` and `NEXT_PUBLIC_ROOMBOARD_ALLOW_SERVER_FALLBACK=true` only for an intentional emergency override or a small early-access cohort while the signed Phoenix secret is being rolled out. Hosted Phoenix requires the same `ROOMBOARD_REALTIME_SECRET` as the Next app; without it, hosted browsers either use the explicit server fallback or avoid joining Phoenix.
 
+### Scaling constraint
+
+The SSE fallback (`lib/presence.ts`, `app/api/rooms/[roomId]/presence`) keeps presence snapshots and stream clients in-process, and `lib/requestRateLimit.ts` falls back to an in-memory bucket map when Supabase is unreachable. Both are correct only while the Next app runs as a single instance. On Vercel, concurrent lambda instances diverge: presence lists differ per instance and rate limits multiply by instance count. Treat this as a single-instance deployment, or move presence to Phoenix (already the default when `NEXT_PUBLIC_ROOMBOARD_REALTIME_URL` is set) and keep `ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK` off in production.
+
 ## Persistence
 
 Roomboard uses a document store for room state. Without Supabase env vars, local development persists rooms to `.roomboard-data/rooms.json`.

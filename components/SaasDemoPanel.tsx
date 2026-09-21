@@ -178,15 +178,17 @@ export function SaasDemoPanel() {
         body: JSON.stringify({
           email: activeEmail || email,
           planId: selectedPlan,
-          userId: session?.user.id,
         }),
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         method: "POST",
       });
-      const data = (await response.json()) as { demo?: boolean; url?: string };
+      const data = (await response.json()) as { demo?: boolean; error?: string; url?: string };
 
       if (!data.url) {
-        setMessage("Checkout route did not return a URL.");
+        setMessage(data.error ?? "Checkout route did not return a URL.");
         return;
       }
 
@@ -201,19 +203,25 @@ export function SaasDemoPanel() {
 
     try {
       const response = await fetch("/api/billing/portal", {
-        body: JSON.stringify({ customerId: subscription?.stripe_customer_id }),
-        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         method: "POST",
       });
-      const data = (await response.json()) as { url?: string };
+      const data = (await response.json()) as { error?: string; url?: string };
 
       if (data.url) {
         window.location.assign(data.url);
+      } else {
+        setMessage(data.error ?? "Billing portal is unavailable.");
       }
     } finally {
       setIsBusy(false);
     }
   }
+
 
   return (
     <section className="lp-saas" id="billing">
