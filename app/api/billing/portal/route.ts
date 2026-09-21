@@ -41,14 +41,17 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Sign in to manage billing." }, { status: 401 });
   }
-
-  const { data: subscription } = await supabase
+  const { data: subscription, error } = await supabase
     .from("billing_subscriptions")
     .select("stripe_customer_id")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: "Unable to load the billing account." }, { status: 500 });
+  }
 
   const customerId = subscription?.stripe_customer_id;
 

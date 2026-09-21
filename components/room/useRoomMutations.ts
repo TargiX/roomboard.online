@@ -20,7 +20,7 @@ import { buildRoomPathWithHashToken, setRoomHashToken } from "@/lib/roomLinks";
 import { trackProductEvent } from "@/lib/productAnalytics";
 import { inviteTokensKey, ownerTokensKey, readStoredTokenMap, writeOwnerToken, writeStoredTokenMap } from "@/lib/roomTokens";
 import { upsertUniqueConnection } from "@/components/room/connectionDrag";
-import { getDomain, truncate } from "@/lib/pixiScene";
+import { getDomain, getImageCardSize, getImageDimensions, truncate } from "@/lib/pixiScene";
 import type { ProductAnalyticsProperties } from "@/components/room/roomTypes";
 
 type RouterInstance = {
@@ -152,55 +152,6 @@ function getUploadFailureCopy(status: number, error?: string) {
   }
 
   return error || "Upload failed. Try a PNG, JPG, GIF, or WebP image under 10MB.";
-}
-
-const IMAGE_CARD_CHROME_HEIGHT = 144;
-const IMAGE_CARD_PADDING_X = 32;
-const MIN_IMAGE_FRAME_WIDTH = 220;
-const MAX_IMAGE_FRAME_WIDTH = 420;
-const MAX_IMAGE_FRAME_HEIGHT = 320;
-const MIN_IMAGE_FRAME_HEIGHT = 120;
-
-function getImageCardSize(width?: number, height?: number) {
-  if (!width || !height || width <= 0 || height <= 0) {
-    return { width: 268, height: 220 };
-  }
-
-  const aspectRatio = Math.min(3.2, Math.max(0.35, width / height));
-  let frameWidth = Math.min(MAX_IMAGE_FRAME_WIDTH, Math.max(MIN_IMAGE_FRAME_WIDTH, width));
-  let frameHeight = frameWidth / aspectRatio;
-
-  if (frameHeight > MAX_IMAGE_FRAME_HEIGHT) {
-    frameHeight = MAX_IMAGE_FRAME_HEIGHT;
-    frameWidth = frameHeight * aspectRatio;
-  }
-
-  if (frameHeight < MIN_IMAGE_FRAME_HEIGHT) {
-    frameHeight = MIN_IMAGE_FRAME_HEIGHT;
-    frameWidth = frameHeight * aspectRatio;
-  }
-
-  frameWidth = Math.min(MAX_IMAGE_FRAME_WIDTH, Math.max(MIN_IMAGE_FRAME_WIDTH, frameWidth));
-
-  return {
-    width: Math.round(frameWidth + IMAGE_CARD_PADDING_X),
-    height: Math.round(frameHeight + IMAGE_CARD_CHROME_HEIGHT),
-  };
-}
-
-function getImageDimensions(src: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const image = new Image();
-
-    if (/^https?:\/\//.test(src)) {
-      image.crossOrigin = "anonymous";
-    }
-
-    image.onload = () =>
-      resolve({ width: image.naturalWidth || image.width, height: image.naturalHeight || image.height });
-    image.onerror = () => reject(new Error("Image dimensions could not be read."));
-    image.src = src;
-  });
 }
 
 type UseRoomMutationsOptions = {

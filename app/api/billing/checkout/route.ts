@@ -58,9 +58,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const fallbackEmail =
+    typeof body.value.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.value.email)
+      ? body.value.email
+      : undefined;
+
   const session = await stripe.checkout.sessions.create({
     allow_promotion_codes: true,
-    customer_email: (user.email ?? body.value.email) || undefined,
+    customer_email: user.email ?? fallbackEmail,
     line_items: [
       {
         price: plan.stripePriceId,

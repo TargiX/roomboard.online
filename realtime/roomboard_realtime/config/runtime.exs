@@ -28,8 +28,21 @@ config :roomboard_realtime, RoomboardRealtimeWeb.Endpoint,
 # without it would silently allow unauthenticated room joins. In prod the
 # flag defaults to requiring a signed token; ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS=true
 # is the explicit opt-out for local/demo deploys.
-config :roomboard_realtime, :require_room_auth,
+require_room_auth =
   config_env() == :prod and System.get_env("ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS") != "true"
+
+config :roomboard_realtime, :require_room_auth, require_room_auth
+
+# Fail fast rather than boot a sidecar that requires signed tokens but cannot
+# verify them: without the secret every join is rejected and the health check
+# still reports ok. Surfacing it here turns a silent outage into a boot error.
+if require_room_auth and System.get_env("ROOMBOARD_REALTIME_SECRET", "") == "" do
+  raise """
+  environment variable ROOMBOARD_REALTIME_SECRET is missing.
+  Room authentication is required in this environment; set the shared secret
+  or explicitly opt out with ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS=true.
+  """
+end
 
 if config_env() == :prod do
   allowed_origins =
