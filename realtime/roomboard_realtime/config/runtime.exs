@@ -23,6 +23,14 @@ end
 config :roomboard_realtime, RoomboardRealtimeWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Room-channel auth requirement is decided at config time, not by reading
+# MIX_ENV at runtime: releases do not carry MIX_ENV, so a release booted
+# without it would silently allow unauthenticated room joins. In prod the
+# flag defaults to requiring a signed token; ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS=true
+# is the explicit opt-out for local/demo deploys.
+config :roomboard_realtime, :require_room_auth,
+  config_env() == :prod and System.get_env("ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS") != "true"
+
 if config_env() == :prod do
   allowed_origins =
     System.get_env("ROOMBOARD_ALLOWED_ORIGINS", "")

@@ -15,6 +15,15 @@ import {
 export const ownerTokensKey = "roomboard-owner-tokens";
 export const inviteTokensKey = "roomboard-invite-tokens";
 
+/** Stable id for browser-local identities (presence sessions, local users). */
+export function createLocalId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function readStoredTokenMap(key: string): Record<string, string> {
   if (typeof window === "undefined") {
     return {};
