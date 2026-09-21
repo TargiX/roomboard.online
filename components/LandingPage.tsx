@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { useRouter } from "next/navigation";
 import type { RoomItemStatus, RoomSummary } from "@/lib/canvasRoom";
 import { LandingLower } from "./LandingLower";
+import { THERMAL_PALETTE_TEAL, ThermalAura } from "./ThermalAura";
 import { captureCampaignAttribution, trackProductEvent } from "@/lib/productAnalytics";
 import { prewarmRealtimeEndpoint } from "@/lib/realtimePrewarm";
 import { buildRoomPathWithHashToken, normalizeRoomRouteFromInput } from "@/lib/roomLinks";
@@ -1132,6 +1133,14 @@ export function LandingPage({ entryIntent = "general", initialStarter = "landing
 
       <main>
         <section className="lp-hero">
+          <div className="lp-hero__aura" aria-hidden="true">
+            <ThermalAura
+              hotspotSize={0.62}
+              intensity={0.55}
+              palette={THERMAL_PALETTE_TEAL}
+              speed={0.7}
+            />
+          </div>
           <div className="lp-shell lp-hero__inner">
             <div className="lp-hero__signal">{heroCopy.signal}</div>
             <h1>
