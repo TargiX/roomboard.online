@@ -68,6 +68,16 @@ export function usePresenceSync({
     credentialsRef.current = roomCredentialsHeaders;
   });
 
+  // `selected` is derived via items.find() in the parent, so it gets a new
+  // reference on every board update. Mirror it into a ref so the publish
+  // effect below can read the latest selection without restarting the
+  // BroadcastChannel/pointermove/interval on every items change.
+  const selectedRef = useRef(selected);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  });
+
   const applyPresenceState = useCallback((snapshots: PresenceSnapshot[]) => {
     const selfId = presenceSessionIdRef.current;
     setPresence(
@@ -127,8 +137,8 @@ export function usePresenceSync({
         id: presenceSessionId,
         name: user.name,
         color: user.color,
-        focus: selected ? selected.title : "canvas",
-        selection: selected?.id,
+        focus: selectedRef.current ? selectedRef.current.title : "canvas",
+        selection: selectedRef.current?.id,
         x: lastPresencePoint.x,
         y: lastPresencePoint.y,
         updatedAt: now,
@@ -170,7 +180,7 @@ export function usePresenceSync({
       window.removeEventListener("pointermove", onPointerMove);
       window.clearInterval(interval);
     };
-  }, [presenceApi, presenceChannelName, realtimeStatus, realtimeSessionRef, sceneRef, selected, useRealtimeFallback, user]);
+  }, [presenceApi, presenceChannelName, realtimeStatus, realtimeSessionRef, sceneRef, selected?.id, selected?.title, useRealtimeFallback, user]);
 
   // ROADMAP #3 / AC #5: prune collaborators that have gone silent (tab close,
   // refresh, network loss) even when the room is quiet. mergePresenceSnapshots
