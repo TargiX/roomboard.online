@@ -106,7 +106,7 @@ void main() {
   // (hotspot edge → outer edge): GLSL smoothstep is undefined when edge0 >=
   // edge1, so the inverted-argument form is not portable.
   float dist = length(uv - 0.5);
-  float mask = 1.0 - smoothstep(hotspotSize, 0.9, dist);
+  float mask = 1.0 - smoothstep(min(hotspotSize, 0.89), 0.9, dist);
 
   // A slow extra modulation makes the hotspot breathe/migrate.
   float hotspotNoise = sin(p.x * 1.5 + time * 0.3 * speed) * cos(p.y * 1.5 - time * 0.4 * speed);
@@ -285,6 +285,10 @@ export function ThermalAura({
         cancelAnimationFrame(frameId);
       } else if (!reduceMotion) {
         running = true;
+        // Cancel any stale pending frame so a single RAF chain survives
+        // visibility toggles (the mount-time render() is still queued when
+        // the tab was opened in a background tab).
+        cancelAnimationFrame(frameId);
         frameId = requestAnimationFrame(render);
       }
     };
