@@ -173,9 +173,13 @@ export function ThermalAura({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const reduceMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // Live media query so runtime changes to the OS motion preference take
+    // effect without a remount (a mount-time snapshot would go stale).
+    const motionQuery =
+      typeof window !== "undefined"
+        ? window.matchMedia?.("(prefers-reduced-motion: reduce)")
+        : undefined;
+    let reduceMotion = motionQuery?.matches ?? false;
 
     // WebGL is unavailable or the user wants no motion → leave the element as a
     // static solid background. The page still looks intentional.
@@ -279,25 +283,46 @@ export function ThermalAura({
     render();
 
     // Pause when the tab is hidden to avoid burning CPU/GPU off-screen.
+    const stopLoop = () => {
+      running = false;
+      cancelAnimationFrame(frameId);
+    };
+    const startLoop = () => {
+      running = true;
+      // Cancel any stale pending frame so a single RAF chain survives
+      // visibility/motion-preference toggles (the mount-time render() is
+      // still queued when the tab was opened in a background tab).
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(render);
+    };
     const onVisibility = () => {
       if (document.hidden) {
-        running = false;
-        cancelAnimationFrame(frameId);
+        stopLoop();
       } else if (!reduceMotion) {
-        running = true;
-        // Cancel any stale pending frame so a single RAF chain survives
-        // visibility toggles (the mount-time render() is still queued when
-        // the tab was opened in a background tab).
-        cancelAnimationFrame(frameId);
-        frameId = requestAnimationFrame(render);
+        startLoop();
+      }
+    };
+    // Keep the reduced-motion flag current; if the user enables motion while
+    // mounted, the RAF loop must actually start (and stop when they disable it).
+    const onMotionPreferenceChange = () => {
+      reduceMotion = motionQuery?.matches ?? false;
+      if (reduceMotion) {
+        stopLoop();
+        // Freeze on a static frame instead of leaving the last animated one.
+        gl.uniform1f(u.time, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      } else if (!document.hidden) {
+        startLoop();
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
+    motionQuery?.addEventListener("change", onMotionPreferenceChange);
 
     return () => {
       running = false;
       cancelAnimationFrame(frameId);
       document.removeEventListener("visibilitychange", onVisibility);
+      motionQuery?.removeEventListener("change", onMotionPreferenceChange);
       resizeObserver?.disconnect();
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
