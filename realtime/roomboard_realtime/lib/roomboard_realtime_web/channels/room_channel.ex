@@ -224,7 +224,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
       is_binary(secret) and secret != "" ->
         verify_access_token(clean_string(payload["accessToken"], 2_400), room_id, secret)
 
-      prod_auth_required?() ->
+      room_auth_required?() ->
         :error
 
       true ->
@@ -236,9 +236,8 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
     System.get_env("ROOMBOARD_REALTIME_SECRET", "")
   end
 
-  defp prod_auth_required? do
-    System.get_env("MIX_ENV") == "prod" and
-      System.get_env("ROOMBOARD_ALLOW_UNAUTHENTICATED_ROOMS") != "true"
+  defp room_auth_required? do
+    Application.get_env(:roomboard_realtime, :require_room_auth, false)
   end
 
   defp verify_access_token(nil, _room_id, _secret), do: :error

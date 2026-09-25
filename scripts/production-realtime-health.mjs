@@ -104,6 +104,16 @@ export async function runProductionRealtimeHealth({ baseUrl, realtimeEndpoint, t
     throw new Error(`Phoenix health returned an unexpected payload: ${JSON.stringify(phoenixHealth)}`);
   }
 
+  // The sidecar reports whether room joins require a signed token. A release
+  // booted without the flag would pass /health yet accept unauthenticated
+  // joins — fail the check instead of discovering it via a public room.
+  if (phoenixHealth?.room_auth_required !== true) {
+    throw new Error(
+      `Phoenix health reports room_auth_required=${JSON.stringify(phoenixHealth?.room_auth_required)}; ` +
+        "production must require signed room tokens.",
+    );
+  }
+
   return {
     baseUrl: normalizedBaseUrl,
     endpoint,

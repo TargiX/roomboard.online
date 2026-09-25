@@ -100,6 +100,10 @@ export function createRoomboardRealtimeSession({
       id: user.id,
       name: user.name,
     },
+    // phoenix 1.8.7 defaults to `global.WebSocket`, which is undefined in the
+    // browser bundle (no `global` polyfill under Turbopack). Pass the real
+    // WebSocket so the constructor doesn't throw before connect() runs.
+    transport: typeof window !== "undefined" ? window.WebSocket : undefined,
     timeout: roomboardRealtimeJoinTimeoutMs,
   });
   let currentAccessToken = accessToken;

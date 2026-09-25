@@ -1,19 +1,41 @@
 import { NextResponse } from "next/server";
 import { getAppOrigin, getBillingPlan, getStripeClient } from "@/lib/billing";
+import { readJsonBody } from "@/lib/requestJson";
+import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
+import { getSupabaseUserFromRequest } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const CHECKOUT_LIMIT_PER_HOUR = 10;
+
 type CheckoutPayload = {
   email?: string;
   planId?: string;
-  userId?: string;
 };
 
 export async function POST(request: Request) {
+  const rateLimit = await checkRateLimitDistributed(
+    `billing:checkout:${getRequestClientKey(request)}`,
+    CHECKOUT_LIMIT_PER_HOUR,
+    60 * 60 * 1000,
+  );
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many checkout attempts. Try again later." },
+      { headers: { "Retry-After": String(rateLimit.retryAfter) }, status: 429 },
+    );
+  }
+
   const origin = getAppOrigin(request);
-  const payload = (await request.json().catch(() => ({}))) as CheckoutPayload;
-  const plan = getBillingPlan(payload.planId);
+  const body = await readJsonBody<CheckoutPayload>(request, 8 * 1024);
+
+  if (!body.ok) {
+    return NextResponse.json({ error: body.error }, { status: body.status });
+  }
+
+  const plan = getBillingPlan(body.value.planId);
   const stripe = getStripeClient();
 
   if (!stripe || !plan.stripePriceId) {
@@ -24,10 +46,26 @@ export async function POST(request: Request) {
     });
   }
 
+  // Live checkout requires a verified Supabase session: the user id written
+  // into Stripe metadata is what the webhook later uses to link the
+  // subscription, so it must come from the token, never the request body.
+  const user = await getSupabaseUserFromRequest(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Sign in before starting checkout." },
+      { status: 401 },
+    );
+  }
+
+  const fallbackEmail =
+    typeof body.value.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.value.email)
+      ? body.value.email
+      : undefined;
+
   const session = await stripe.checkout.sessions.create({
     allow_promotion_codes: true,
-    billing_address_collection: "auto",
-    customer_email: payload.email || undefined,
+    customer_email: user.email ?? fallbackEmail,
     line_items: [
       {
         price: plan.stripePriceId,
@@ -36,13 +74,13 @@ export async function POST(request: Request) {
     ],
     metadata: {
       planId: plan.id,
-      userId: payload.userId ?? "",
+      userId: user.id,
     },
     mode: "subscription",
     subscription_data: {
       metadata: {
         planId: plan.id,
-        userId: payload.userId ?? "",
+        userId: user.id,
       },
     },
     success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,

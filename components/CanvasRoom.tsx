@@ -56,25 +56,17 @@ import type {
   RoomSnapshot,
   RoomVisibility,
 } from "@/lib/canvasRoom";
-import { getDecisionCompletionSignal } from "@/lib/decisionCompletion";
 import { syncCursorsToPresence } from "@/lib/cursorOverlay";
-import { recordAuthoredFirstCard, resolveFirstCardEventName } from "@/lib/firstCardSignal";
 import { dismissRoomLaunchGuide, isRoomLaunchGuideDismissed } from "@/lib/launchGuideState";
 import { getLifecycleCopy, getProfileJoinCopy } from "@/lib/lifecycleCopy";
 import { trackProductEvent } from "@/lib/productAnalytics";
 import type { PresenceSnapshot } from "@/lib/presence";
-import { PRESENCE_TTL_MS, pruneStalePresence } from "@/lib/presenceTtl";
-import { buildRoomInviteMessage } from "@/lib/roomInviteMessage";
-import { buildRoomPathWithHashToken, setRoomHashToken } from "@/lib/roomLinks";
+import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
 import {
+  createLocalId,
   getInviteToken,
   getOwnerToken,
-  inviteTokensKey,
-  ownerTokensKey,
   persistAuthorizedInviteToken,
-  readStoredTokenMap,
-  writeOwnerToken,
-  writeStoredTokenMap,
 } from "@/lib/roomTokens";
 import { getRoomboardPanelState } from "@/lib/roomboardPanelState";
 import {
@@ -83,7 +75,6 @@ import {
   type RoomboardRealtimeStatus,
   type RoomboardRealtimeSession,
 } from "@/lib/roomboardRealtime";
-import { mergePresenceSnapshots } from "@/lib/realtimeHelpers";
 import { getRealtimeSyncAnnouncement, getRealtimeSyncPresentation } from "@/lib/realtimeSyncPresentation";
 import { buildRoomboardSupportMailto } from "@/lib/support";
 import { RoomInspector } from "@/components/room/RoomInspector";
@@ -93,6 +84,8 @@ import { RoomCloseModal, RoomLockModal, RoomProfileModal } from "@/components/ro
 import { RoomboardLoader } from "@/components/RoomboardLoader";
 
 import { usePixiScene } from "@/components/room/usePixiScene";
+import { usePresenceSync } from "@/components/room/usePresenceSync";
+import { useRoomMutations } from "@/components/room/useRoomMutations";
 import { createDrawItem } from "@/components/room/drawItem";
 import {
   createConnectionHandlers,
@@ -112,7 +105,6 @@ import {
   getItemStatusMeta,
   getPixiTextResolution,
   loadImageTexture,
-  minImageFrameHeight,
   setWorldZoom,
   toColor,
   truncate,
@@ -168,6 +160,12 @@ type LocalMove = {
   y: number;
 };
 
+type PendingEdit = {
+  body?: string;
+  sentAt: number;
+  title?: string;
+};
+
 type GridTransform = {
   panX: number;
   panY: number;
@@ -219,14 +217,8 @@ const sampleStarterRoomNames: Record<"landing-review" | "moodboard" | "visual-de
   "visual-decision": "Visual Decision Room",
 };
 const dragBroadcastIntervalMs = 50;
-const imageCardChromeHeight = 144;
-const imageCardPaddingX = 32;
-const minImageFrameWidth = 220;
-const maxImageFrameWidth = 420;
-const maxImageFrameHeight = 320;
 const pixiFont = "Geist, Inter, system-ui, sans-serif";
 const roomUploadMaxBytes = 10 * 1024 * 1024;
-const supportedRoomUploadTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const roomCanvasSupportMailto = buildRoomboardSupportMailto("Room canvas");
 const connectionHandleHitRadius = 12;
 const connectionArrowHitRadius = 20;
@@ -713,14 +705,6 @@ function getRecapFileName(roomName: string) {
   return `${slug || "roomboard"}-recap.md`;
 }
 
-function createLocalId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
 function createIncompleteLocalUser(): LocalUser {
   return {
     id: createLocalId(),
@@ -829,50 +813,22 @@ function getInitials(name: string) {
   return trimmed ? trimmed.slice(0, 2).toUpperCase() : "ME";
 }
 
-function getImageCardSize(width?: number, height?: number) {
-  if (!width || !height || width <= 0 || height <= 0) {
-    return { width: 268, height: 220 };
-  }
-
-  const aspectRatio = Math.min(3.2, Math.max(0.35, width / height));
-  let frameWidth = Math.min(maxImageFrameWidth, Math.max(minImageFrameWidth, width));
-  let frameHeight = frameWidth / aspectRatio;
-
-  if (frameHeight > maxImageFrameHeight) {
-    frameHeight = maxImageFrameHeight;
-    frameWidth = frameHeight * aspectRatio;
-  }
-
-  if (frameHeight < minImageFrameHeight) {
-    frameHeight = minImageFrameHeight;
-    frameWidth = frameHeight * aspectRatio;
-  }
-
-  frameWidth = Math.min(maxImageFrameWidth, Math.max(minImageFrameWidth, frameWidth));
-
-  return {
-    width: Math.round(frameWidth + imageCardPaddingX),
-    height: Math.round(frameHeight + imageCardChromeHeight),
-  };
-}
-
-function getImageDimensions(src: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const image = new Image();
-
-    if (/^https?:\/\//.test(src)) {
-      image.crossOrigin = "anonymous";
-    }
-
-    image.onload = () =>
-      resolve({ width: image.naturalWidth || image.width, height: image.naturalHeight || image.height });
-    image.onerror = () => reject(new Error("Image dimensions could not be read."));
-    image.src = src;
-  });
-}
 
 function isSamePosition(item: RoomItem, move: LocalMove) {
   return Math.round(item.x) === Math.round(move.x) && Math.round(item.y) === Math.round(move.y);
+}
+
+/** Clear one field of a pending edit; drop the entry when nothing is left. */
+function clearPendingEditField(map: Map<string, PendingEdit>, itemId: string, field: "title" | "body") {
+  const pending = map.get(itemId);
+  if (!pending) return;
+  const next = { ...pending };
+  delete next[field];
+  if (next.title === undefined && next.body === undefined) {
+    map.delete(itemId);
+  } else {
+    map.set(itemId, next);
+  }
 }
 
 function getRoleLabel(permissions: RoomPermissions) {
@@ -942,10 +898,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const realtimeWasConnectedRef = useRef(false);
   const hadSyncOutageRef = useRef(false);
   const lastSyncAnnouncementRef = useRef("");
-  const presenceSessionIdRef = useRef(createLocalId());
   const tickerCleanupRef = useRef<(() => void)[]>([]);
   const draggingPositionsRef = useRef(new Map<string, LocalMove>());
   const pendingMovesRef = useRef(new Map<string, LocalMove>());
+  const pendingEditsRef = useRef(new Map<string, PendingEdit>());
   const remoteTargetsRef = useRef(new Map<string, { x: number; y: number }>());
   const lastDragBroadcastRef = useRef(new Map<string, number>());
   const itemPropsRef = useRef(new Map<string, string>());
@@ -980,10 +936,6 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const [roomLoadErrorKind, setRoomLoadErrorKind] = useState<RoomLoadErrorKind | "">("");
   const [roomClosed, setRoomClosed] = useState(false);
   const [selectedId, setSelectedId] = useState("");
-  const [presence, setPresence] = useState<PresenceSnapshot[]>([]);
-  // Mirror for ticker callbacks that must read the latest presence without
-  // being re-registered on every presence change.
-  const presenceRef = useRef<PresenceSnapshot[]>([]);
   // Live handle on the booted Pixi app so per-render effects can attach
   // ticker callbacks without waiting for a separate state round-trip.
   const currentAppRef = useRef<Application | null>(null);
@@ -1095,6 +1047,27 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     ...(inviteToken ? { "X-Room-Invite-Token": inviteToken } : {}),
     ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
   };
+  const {
+    applyPresenceLeave,
+    applyPresenceList,
+    applyPresenceState,
+    applyPresenceUpdate,
+    clearPresence,
+    presence,
+    presenceRef,
+    presenceSessionIdRef,
+  } = usePresenceSync({
+    presenceApi,
+    presenceChannelName,
+    realtimeSessionRef,
+    realtimeStatus,
+    roomCredentialsHeaders,
+    sceneRef,
+    selected,
+    useRealtimeFallback,
+    user,
+  });
+
   const trackRoomActivationEvent = useCallback(
     (name: string, properties: ProductAnalyticsProperties = {}) => {
       trackProductEvent(name, {
@@ -1253,35 +1226,45 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
 
   const withLocalPositions = useCallback((nextItems: RoomItem[]) => {
     return nextItems.map((item) => {
+      let next = item;
       const draggingPosition = draggingPositionsRef.current.get(item.id);
+
       if (draggingPosition) {
-        return {
-          ...item,
-          x: draggingPosition.x,
-          y: draggingPosition.y,
-        };
+        next = { ...next, x: draggingPosition.x, y: draggingPosition.y };
+      } else {
+        const pendingMove = pendingMovesRef.current.get(item.id);
+
+        if (pendingMove) {
+          if (isSamePosition(next, pendingMove)) {
+            pendingMovesRef.current.delete(item.id);
+          } else if (pendingMove.sentAt && next.updatedAt < pendingMove.sentAt) {
+            next = { ...next, updatedAt: pendingMove.sentAt, x: pendingMove.x, y: pendingMove.y };
+          }
+        }
       }
 
-      const pendingMove = pendingMovesRef.current.get(item.id);
-      if (!pendingMove) {
-        return item;
+      // Optimistic inline text edits survive full snapshots the same way
+      // pending moves do: without this, an SSE `room` event landing between
+      // the PATCH and its response silently reverts the user's title/body.
+      const pendingEdit = pendingEditsRef.current.get(item.id);
+
+      if (pendingEdit) {
+        const titleSettled = pendingEdit.title === undefined || next.title === pendingEdit.title;
+        const bodySettled = pendingEdit.body === undefined || next.body === pendingEdit.body;
+
+        if (titleSettled && bodySettled) {
+          pendingEditsRef.current.delete(item.id);
+        } else if (next.updatedAt < pendingEdit.sentAt) {
+          next = {
+            ...next,
+            body: pendingEdit.body ?? next.body,
+            title: pendingEdit.title ?? next.title,
+            updatedAt: pendingEdit.sentAt,
+          };
+        }
       }
 
-      if (isSamePosition(item, pendingMove)) {
-        pendingMovesRef.current.delete(item.id);
-        return item;
-      }
-
-      if (pendingMove.sentAt && item.updatedAt < pendingMove.sentAt) {
-        return {
-          ...item,
-          updatedAt: pendingMove.sentAt,
-          x: pendingMove.x,
-          y: pendingMove.y,
-        };
-      }
-
-      return item;
+      return next;
     });
   }, []);
 
@@ -1295,7 +1278,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       setIsSnapshotPublic(snapshot.room?.isSnapshotPublic === true);
       setPermissions(snapshot.permissions ?? defaultRoomPermissions);
       setInviteTokens(snapshot.inviteTokens ?? {});
-      setRealtimeAccessToken(snapshot.realtimeToken ?? null);
+      // Only set the token once — the channel's getAccessToken callback
+      // refreshes it internally on rejoin. Updating state on every snapshot
+      // would re-trigger the realtime effect and tear down the session.
+      setRealtimeAccessToken((current) => current ?? snapshot.realtimeToken ?? null);
       setItems(nextItems);
       setConnections(snapshot.connections || []);
       setActivities(snapshot.activities || []);
@@ -1475,7 +1461,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     }
     setRoomLoadError("");
     setRoomLoadErrorKind("");
-    setPresence([]);
+    clearPresence();
     setOwnerToken(getOwnerToken(roomId));
     const nextInviteToken = getInviteToken(roomId);
     setInviteToken(nextInviteToken.token);
@@ -1559,9 +1545,12 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       router.push("/rooms");
     });
     source.onerror = () => {
+      // Don't clobber a more specific load error (locked/missing) that the
+      // snapshot fetch already set — the stream failing first is expected
+      // when the room requires credentials.
       if (!hasRoomSnapshotRef.current) {
-        setRoomLoadErrorKind("unavailable");
-        setRoomLoadError("Live connection failed before the room loaded.");
+        setRoomLoadErrorKind((current) => current || "unavailable");
+        setRoomLoadError((current) => current || "Live connection failed before the room loaded.");
       }
     };
 
@@ -1616,19 +1605,9 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         getAccessToken: refreshRoomSnapshot,
         endpoint: realtimeEndpoint,
         onBoardEvent: applyBoardEvent,
-        onPresenceState: (snapshots) => {
-          setPresence(
-            snapshots.filter((snapshot) => snapshot.id !== presenceSessionId).sort((a, b) => b.updatedAt - a.updatedAt),
-          );
-        },
-        onPresenceUpdate: (snapshot) => {
-          if (snapshot.id !== presenceSessionId) {
-            setPresence((current) => mergePresenceSnapshots(current, [snapshot]));
-          }
-        },
-        onPresenceLeave: (ids) => {
-          setPresence((current) => current.filter((snapshot) => !ids.includes(snapshot.id)));
-        },
+        onPresenceState: applyPresenceState,
+        onPresenceUpdate: applyPresenceUpdate,
+        onPresenceLeave: applyPresenceLeave,
         onStatusChange: (status) => {
           setRealtimeStatus(status);
 
@@ -1681,19 +1660,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
 
     source.addEventListener("presence", (event) => {
       const snapshots = JSON.parse((event as MessageEvent).data) as PresenceSnapshot[];
-      setPresence((current) =>
-        mergePresenceSnapshots(
-          current,
-          snapshots.filter((snapshot) => snapshot.id !== presenceSessionId),
-        ),
-      );
+      applyPresenceList(snapshots);
     });
     channel.addEventListener("message", (event) => {
-      const snapshot = event.data as PresenceSnapshot;
-
-      if (snapshot.id !== presenceSessionId) {
-        setPresence((current) => mergePresenceSnapshots(current, [snapshot]));
-      }
+      applyPresenceUpdate(event.data as PresenceSnapshot);
     });
 
     return () => {
@@ -1705,6 +1675,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     };
   }, [
     applyBoardEvent,
+    applyPresenceLeave,
+    applyPresenceList,
+    applyPresenceState,
+    applyPresenceUpdate,
     presenceStreamApi,
     presenceChannelName,
     realtimeAccessToken,
@@ -1715,97 +1689,6 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     user,
   ]);
 
-  useEffect(() => {
-    if (!user?.profileComplete) {
-      return;
-    }
-
-    const channel = useRealtimeFallback ? new BroadcastChannel(presenceChannelName) : null;
-    const presenceSessionId = presenceSessionIdRef.current;
-    let lastPresencePoint = { x: 0, y: 0 };
-    let lastLocalSent = 0;
-    let lastServerSent = 0;
-    const sendPresence = (clientX?: number, clientY?: number) => {
-      const now = Date.now();
-      const scene = sceneRef.current;
-
-      if (scene && Number.isFinite(clientX) && Number.isFinite(clientY)) {
-        const hostRect = scene.host.getBoundingClientRect();
-        const scale = scene.world.scale.x || 1;
-        lastPresencePoint = {
-          x: (clientX! - hostRect.left - scene.world.x) / scale,
-          y: (clientY! - hostRect.top - scene.world.y) / scale,
-        };
-      }
-
-      const snapshot = {
-        id: presenceSessionId,
-        name: user.name,
-        color: user.color,
-        focus: selected ? selected.title : "canvas",
-        selection: selected?.id,
-        x: lastPresencePoint.x,
-        y: lastPresencePoint.y,
-        updatedAt: now,
-      };
-
-      if (channel && now - lastLocalSent >= 16) {
-        lastLocalSent = now;
-        channel.postMessage(snapshot);
-      }
-
-      if (!useRealtimeFallback) {
-        if (realtimeStatus === "connected" && now - lastServerSent >= 50) {
-          lastServerSent = now;
-          realtimeSessionRef.current?.updatePresence(snapshot);
-        }
-
-        return;
-      }
-
-      if (now - lastServerSent < 180) {
-        return;
-      }
-
-      lastServerSent = now;
-      void fetch(presenceApi, {
-        body: JSON.stringify(snapshot),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-    };
-
-    sendPresence();
-    const onPointerMove = (event: PointerEvent) => sendPresence(event.clientX, event.clientY);
-    window.addEventListener("pointermove", onPointerMove);
-    const interval = window.setInterval(() => sendPresence(), 3000);
-
-    return () => {
-      channel?.close();
-      window.removeEventListener("pointermove", onPointerMove);
-      window.clearInterval(interval);
-    };
-  }, [inviteToken, ownerToken, presenceApi, presenceChannelName, realtimeStatus, selected, useRealtimeFallback, user]);
-
-  // ROADMAP #3 / AC #5: prune collaborators that have gone silent (tab close,
-  // refresh, network loss) even when the room is quiet. mergePresenceSnapshots
-  // already drops stale entries, but only when an incoming presence event
-  // arrives — a still room would otherwise pin a stale collaborator on screen
-  // past the TTL. Re-applying the TTL on a timer guarantees they disappear.
-  useEffect(() => {
-    const interval = window.setInterval(
-      () => setPresence((current) => pruneStalePresence(current)),
-      Math.round(PRESENCE_TTL_MS / 3),
-    );
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  // Keep the ticker-readable mirror in sync before the cursor overlay effect
-  // below runs within the same commit.
-  useEffect(() => {
-    presenceRef.current = presence;
-  });
 
   usePixiScene({
     hostRef,
@@ -2227,1168 +2110,106 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     };
   }, [presence, sceneReady]);
 
-  const createItem = async (
-    type: "image" | "note",
-    url?: string,
-    size?: { width: number; height: number },
-    initialText?: { title?: string; body?: string },
-    activationProperties: ProductAnalyticsProperties = {},
-  ) => {
-    if (!canEditRoom) {
-      return;
-    }
+  const {
+    addCommentToItem,
+    closeRoom,
+    copyInviteMessage,
+    copyPublicSnapshotLink,
+    copyRoomLink,
+    createFirstDecisionNote,
+    createImageFromFile,
+    createImageFromUrl,
+    createItem,
+    deleteRoomPermanently,
+    handleCreateConnection,
+    handleDeleteConnection,
+    handleDeleteItem,
+    handleDuplicateItem,
+    handleReverseConnection,
+    loadRoomRecap,
+    patchItem,
+    saveSelected,
+    startRoomFromSample,
+    submitComment,
+    toggleDecisionSignal,
+    togglePublicSnapshot,
+    toggleRoomAccess,
+    updateItemStatus,
+    updateSelectedStatus,
+  } = useRoomMutations({
+    activities,
+    authoredFirstCardRef,
+    canEditRoom,
+    canManageRoom,
+    comment,
+    connections,
+    displayRoomName,
+    draftBody,
+    draftStatus,
+    draftTitle,
+    imageUrl,
+    inviteToken,
+    inviteTokens,
+    isCreatingFirstDecisionNoteRef,
+    isSnapshotPublic,
+    isStartingSampleRoom,
+    isTogglingSnapshot,
+    items,
+    launchStarter,
+    launchStarterCopy,
+    ownerToken,
+    permissions,
+    publishBoardEvent,
+    refreshRoomSnapshot,
+    requestProfile,
+    roomAccess,
+    roomApi,
+    roomCredentialsHeaders,
+    roomId,
+    roomUploadMaxBytes,
+    router,
+    sampleStarterByRoomId,
+    sampleStarterRoomNames,
+    selected,
+    selectedId,
+    setBoardActionError,
+    setComment,
+    setConnections,
+    setControlError,
+    setCopiedInviteMessage,
+    setCopiedRecap,
+    setCopiedLaunchLinks,
+    setCopiedShare,
+    setCopiedSnapshotLink,
+    setCopyError,
+    setDraftStatus,
+    setIsClosingRoom,
+    setIsConfirmingPermanentDelete,
+    setIsCreatingFirstDecisionNote,
+    setIsDeletingRoom,
+    setIsRecapLoading,
+    setIsSnapshotPublic,
+    setIsStartingSampleRoom,
+    setIsTogglingAccess,
+    setIsTogglingSnapshot,
+    setItems,
+    setPendingProfileComment,
+    setPendingProfileConnection,
+    setPendingProfileItem,
+    setPendingProfileStatus,
+    setPendingProfileUpload,
+    setRoomAccessState,
+    setRoomRecap,
+    setShowCloseModal,
+    setShowLaunchGuideBackupReminder,
+    setShowLockModal,
+    setSelectedId,
+    setUploadError,
+    trackRoomActivationEvent,
+    user,
+    userRef,
+  });
 
-    if (!user?.profileComplete) {
-      setPendingProfileItem({ activationProperties, initialText, size, type, url });
-      requestProfile();
-      return;
-    }
-
-    setBoardActionError("");
-
-    let response: Response;
-    let data: RoomMutationResponse & { item?: RoomItem };
-
-    try {
-      response = await fetch(roomApi, {
-        body: JSON.stringify({
-          action: "item",
-          author: user.name,
-          body: initialText?.body ?? (type === "image" ? "Review thread ready - source saved." : "New note"),
-          color: user.color,
-          height: size?.height,
-          imageUrl: url,
-          title: initialText?.title ?? (type === "image" ? "Visual reference" : "Untitled note"),
-          type,
-          width: size?.width,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-      data = (await response.json()) as RoomMutationResponse & { item?: RoomItem };
-    } catch {
-      setBoardActionError("Roomboard could not add the card. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "create_card", reason: "request_error" });
-      return;
-    }
-
-    if (data.item) {
-      // Seeded starters open with six cards, so "is the board empty" would have
-      // meant this visitor could never register their first card on two of the
-      // three campaign routes.
-      const eventName = resolveFirstCardEventName(roomId, authoredFirstCardRef.current);
-      if (eventName === "Room First Card Created") {
-        authoredFirstCardRef.current = true;
-        recordAuthoredFirstCard(roomId);
-      }
-      trackRoomActivationEvent(eventName, {
-        ...activationProperties,
-        cardType: type,
-        itemCount: items.length + 1,
-      });
-      setItems((current) => {
-        const next = new Map(current.map((item) => [item.id, item]));
-        next.set(data.item!.id, data.item!);
-        return Array.from(next.values()).sort((a, b) => a.createdAt - b.createdAt);
-      });
-      setSelectedId(data.item.id);
-      publishBoardEvent({ type: "item:created", item: data.item });
-      void refreshRoomSnapshot();
-      return;
-    }
-
-    setBoardActionError(
-      response.status === 403
-        ? "Editor access is required to add cards. Open an editor invite or ask the creator for a fresh link."
-        : response.status === 409
-          ? getRoomCapacityCopy(data)
-          : "Roomboard could not add the card. Try again in a moment.",
-    );
-    trackRoomActivationEvent("Room Board Action Failed", { action: "create_card", status: response.status });
-  };
-
-  const createFirstDecisionNote = async (
-    source: "empty_room" | "launch_guide" | "decision_checkpoint" = "launch_guide",
-  ) => {
-    if (isCreatingFirstDecisionNoteRef.current) {
-      return;
-    }
-
-    isCreatingFirstDecisionNoteRef.current = true;
-    setIsCreatingFirstDecisionNote(true);
-
-    try {
-      await createItem(
-        "note",
-        undefined,
-        undefined,
-        {
-          body: "What decision should this room help make? Drop the mockup, image, link, or idea people should react to.",
-          title: "Decision question",
-        },
-        {
-          preset: "decision_question",
-          source,
-          starter: launchStarter || "blank",
-        },
-      );
-    } finally {
-      isCreatingFirstDecisionNoteRef.current = false;
-      setIsCreatingFirstDecisionNote(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!pendingProfileItem || !user?.profileComplete || !canEditRoom) {
-      return;
-    }
-
-    const nextItem = pendingProfileItem;
-    setPendingProfileItem(null);
-    void createItem(nextItem.type, nextItem.url, nextItem.size, nextItem.initialText, nextItem.activationProperties);
-  }, [canEditRoom, pendingProfileItem, user?.profileComplete]);
-
-  const createImageFromFile = async (file: File) => {
-    if (!canEditRoom) {
-      return;
-    }
-
-    setUploadError("");
-
-    if (!file.type.startsWith("image/")) {
-      setUploadError("Upload a PNG, JPG, GIF, or WebP image.");
-      trackRoomActivationEvent("Room Upload Rejected", {
-        reason: "not_image",
-      });
-      return;
-    }
-
-    if (!supportedRoomUploadTypes.has(file.type)) {
-      setUploadError("Roomboard supports PNG, JPG, GIF, and WebP uploads.");
-      trackRoomActivationEvent("Room Upload Rejected", {
-        fileType: getSafeImageType(file.type),
-        reason: "unsupported_type",
-      });
-      return;
-    }
-
-    if (file.size > roomUploadMaxBytes) {
-      setUploadError("Images must be smaller than 10MB.");
-      trackRoomActivationEvent("Room Upload Rejected", {
-        fileSizeBucket: getFileSizeBucket(file.size),
-        reason: "too_large",
-      });
-      return;
-    }
-
-    if (!user?.profileComplete) {
-      setPendingProfileUpload(file);
-      trackRoomActivationEvent("Room Upload Profile Required", {
-        fileSizeBucket: getFileSizeBucket(file.size),
-        fileType: getSafeImageType(file.type),
-      });
-      requestProfile();
-      return;
-    }
-
-    trackRoomActivationEvent("Room Upload Started", {
-      fileSizeBucket: getFileSizeBucket(file.size),
-      fileType: getSafeImageType(file.type),
-    });
-
-    const localPreviewUrl = URL.createObjectURL(file);
-    const imageSize = await getImageDimensions(localPreviewUrl)
-      .then((dimensions) => getImageCardSize(dimensions.width, dimensions.height))
-      .catch(() => getImageCardSize())
-      .finally(() => URL.revokeObjectURL(localPreviewUrl));
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("roomId", roomId);
-    if (inviteToken) formData.append("inviteToken", inviteToken);
-    if (ownerToken) formData.append("ownerToken", ownerToken);
-
-    let response: Response;
-    let data: { error?: string; mode?: string; url?: string };
-
-    try {
-      response = await fetch("/api/uploads", {
-        body: formData,
-        method: "POST",
-      });
-      data = (await response.json()) as { error?: string; mode?: string; url?: string };
-    } catch {
-      setUploadError("Roomboard could not reach the upload service. Try again in a moment.");
-      trackRoomActivationEvent("Room Upload Failed", {
-        reason: "request_error",
-      });
-      return;
-    }
-
-    if (data.url) {
-      setUploadError("");
-      trackRoomActivationEvent("Room Upload Completed", {
-        mode: data.mode === "supabase" ? "supabase" : "local",
-      });
-      const fileTitle = file.name
-        .replace(/\.[^.]+$/, "")
-        .replace(/[-_]+/g, " ")
-        .trim();
-      await createItem(
-        "image",
-        data.url,
-        imageSize,
-        {
-          body: "Review thread ready - source saved.",
-          title: fileTitle ? truncate(fileTitle, 64) : "Uploaded visual reference",
-        },
-        {
-          cardSource: "upload",
-        },
-      );
-      return;
-    }
-
-    setUploadError(getUploadFailureCopy(response.status, data.error));
-    trackRoomActivationEvent("Room Upload Failed", {
-      status: response.status,
-    });
-  };
-
-  useEffect(() => {
-    if (!pendingProfileUpload || !user?.profileComplete || !canEditRoom) {
-      return;
-    }
-
-    const file = pendingProfileUpload;
-    setPendingProfileUpload(null);
-    void createImageFromFile(file);
-  }, [canEditRoom, pendingProfileUpload, user?.profileComplete]);
-
-  const createImageFromUrl = async (url: string) => {
-    if (!canEditRoom) {
-      return;
-    }
-
-    const trimmedUrl = url.trim();
-    const imageSize = await getImageDimensions(trimmedUrl)
-      .then((dimensions) => getImageCardSize(dimensions.width, dimensions.height))
-      .catch(() => getImageCardSize());
-
-    const domain = getDomain(trimmedUrl);
-    await createItem(
-      "image",
-      trimmedUrl,
-      imageSize,
-      {
-        body: "Review thread ready - source saved.",
-        title: domain === "Link" ? "Linked visual reference" : `Reference from ${domain}`,
-      },
-      {
-        cardSource: "url",
-      },
-    );
-  };
-
-  const saveSelected = async () => {
-    if (!selected || !canEditRoom) {
-      return;
-    }
-
-    const nextImageSize =
-      selected.type === "image" && imageUrl.trim() && imageUrl.trim() !== (selected.imageUrl ?? "")
-        ? await getImageDimensions(imageUrl.trim())
-            .then((dimensions) => getImageCardSize(dimensions.width, dimensions.height))
-            .catch(() => undefined)
-        : undefined;
-
-    setBoardActionError("");
-
-    let response: Response;
-    let data: { item?: RoomItem };
-
-    try {
-      response = await fetch(roomApi, {
-        body: JSON.stringify({
-          body: draftBody,
-          author: user?.name,
-          height: nextImageSize?.height,
-          id: selected.id,
-          imageUrl,
-          status: draftStatus,
-          title: draftTitle,
-          width: nextImageSize?.width,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "PATCH",
-      });
-      data = (await response.json()) as { item?: RoomItem };
-    } catch {
-      setBoardActionError("Roomboard could not save the card. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "save_card", reason: "request_error" });
-      return;
-    }
-
-    if (data.item) {
-      setBoardActionError("");
-      setItems((current) => current.map((item) => (item.id === data.item!.id ? data.item! : item)));
-      publishBoardEvent({ type: "item:updated", item: data.item });
-      void refreshRoomSnapshot();
-      return;
-    }
-
-    setBoardActionError(
-      response.status === 403
-        ? "Editor access is required to save cards. Open an editor invite or ask the creator for a fresh link."
-        : "Roomboard could not save the card. Try again in a moment.",
-    );
-    trackRoomActivationEvent("Room Board Action Failed", { action: "save_card", status: response.status });
-  };
-
-  const updateItemStatus = async (itemId: string, status: RoomItemStatus) => {
-    const currentUser = user;
-
-    if (!itemId || !canEditRoom) {
-      return;
-    }
-
-    setDraftStatus(status);
-
-    if (!currentUser?.profileComplete) {
-      setPendingProfileStatus({ itemId, status });
-      requestProfile();
-      return;
-    }
-
-    setBoardActionError("");
-
-    let response: Response;
-    let data: { item?: RoomItem };
-
-    try {
-      response = await fetch(roomApi, {
-        body: JSON.stringify({
-          author: currentUser.name,
-          id: itemId,
-          status,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "PATCH",
-      });
-      data = (await response.json()) as { item?: RoomItem };
-    } catch {
-      setBoardActionError("Roomboard could not change the card status. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "status", reason: "request_error" });
-      return;
-    }
-
-    if (data.item) {
-      trackRoomActivationEvent("Room Card Status Changed", { status });
-      setItems((current) => current.map((item) => (item.id === data.item!.id ? data.item! : item)));
-      publishBoardEvent({ type: "item:updated", item: data.item });
-      void refreshRoomSnapshot();
-      return;
-    }
-
-    setBoardActionError(
-      response.status === 403
-        ? "Editor access is required to change status. Open an editor invite or ask the creator for a fresh link."
-        : "Roomboard could not change the card status. Try again in a moment.",
-    );
-    trackRoomActivationEvent("Room Board Action Failed", { action: "status", status: response.status });
-  };
-
-  const updateSelectedStatus = async (status: RoomItemStatus) => {
-    if (!selected) {
-      return;
-    }
-
-    await updateItemStatus(selected.id, status);
-  };
-
-  useEffect(() => {
-    if (!pendingProfileStatus || !user?.profileComplete || !canEditRoom) {
-      return;
-    }
-
-    const nextStatus = pendingProfileStatus;
-    setPendingProfileStatus(null);
-    void updateItemStatus(nextStatus.itemId, nextStatus.status);
-  }, [canEditRoom, pendingProfileStatus, user?.profileComplete]);
-
-  const addCommentToItem = async (itemId: string, body: string) => {
-    const trimmedBody = body.trim();
-    const currentUser = user;
-
-    if (!itemId || !canEditRoom || trimmedBody.length === 0) {
-      return;
-    }
-
-    if (!currentUser?.profileComplete) {
-      setPendingProfileComment({ body: trimmedBody, itemId });
-      requestProfile();
-      return;
-    }
-
-    const targetItem = items.find((item) => item.id === itemId);
-    setBoardActionError("");
-
-    let response: Response;
-    let data: RoomMutationResponse & { comment?: RoomItem["comments"][number] };
-
-    try {
-      response = await fetch(roomApi, {
-        body: JSON.stringify({
-          action: "comment",
-          author: currentUser.name,
-          body: trimmedBody,
-          color: currentUser.color,
-          itemId,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-      data = (await response.json()) as RoomMutationResponse & { comment?: RoomItem["comments"][number] };
-    } catch {
-      setBoardActionError("Roomboard could not add the comment. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "comment", reason: "request_error" });
-      return;
-    }
-
-    if (data.comment) {
-      trackRoomActivationEvent("Room Comment Created", {
-        commentCount: (targetItem?.comments.length ?? 0) + 1,
-        itemStatus: targetItem?.status ?? "open",
-      });
-      setItems((current) =>
-        current.map((item) =>
-          item.id === itemId
-            ? {
-                ...item,
-                comments: item.comments.some((entry) => entry.id === data.comment!.id)
-                  ? item.comments
-                  : [...item.comments, data.comment!],
-                updatedAt: Math.max(item.updatedAt, data.comment!.createdAt),
-              }
-            : item,
-        ),
-      );
-      publishBoardEvent({ type: "comment:created", comment: data.comment, itemId });
-      void refreshRoomSnapshot();
-      if (selectedId === itemId) {
-        setComment("");
-      }
-      return;
-    }
-
-    setBoardActionError(
-      response.status === 403
-        ? "Editor access is required to comment. Open an editor invite or ask the creator for a fresh link."
-        : response.status === 409
-          ? getRoomCapacityCopy(data)
-          : "Roomboard could not add the comment. Try again in a moment.",
-    );
-    trackRoomActivationEvent("Room Board Action Failed", { action: "comment", status: response.status });
-  };
-
-  const submitComment = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!selected) {
-      return;
-    }
-
-    await addCommentToItem(selected.id, comment);
-  };
-
-  const toggleDecisionSignal = async (item: RoomItem) => {
-    const currentUser = user;
-    if (!canEditRoom) return;
-    if (!currentUser?.profileComplete) {
-      requestProfile();
-      return;
-    }
-
-    setBoardActionError("");
-    try {
-      const response = await fetch(roomApi, {
-        body: JSON.stringify({
-          action: "decision-signal",
-          author: currentUser.name,
-          color: currentUser.color,
-          itemId: item.id,
-          voterId: currentUser.id,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-      const data = (await response.json()) as RoomMutationResponse & { item?: RoomItem };
-      if (!data.item) {
-        setBoardActionError(
-          response.status === 403
-            ? "Editor access is required to back a decision. Open an editor invite or ask the creator for a fresh link."
-            : response.status === 409
-              ? getRoomCapacityCopy(data)
-              : "Roomboard could not update that decision signal. Try again in a moment.",
-        );
-        return;
-      }
-      setItems((current) => current.map((entry) => (entry.id === data.item!.id ? data.item! : entry)));
-      publishBoardEvent({ type: "item:updated", item: data.item });
-      void refreshRoomSnapshot();
-    } catch {
-      setBoardActionError("Roomboard could not update that decision signal. Try again in a moment.");
-    }
-  };
-
-  useEffect(() => {
-    if (!pendingProfileComment || !user?.profileComplete || !canEditRoom) {
-      return;
-    }
-
-    const nextComment = pendingProfileComment;
-    setPendingProfileComment(null);
-    void addCommentToItem(nextComment.itemId, nextComment.body);
-  }, [canEditRoom, pendingProfileComment, user?.profileComplete]);
-
-  const handleCreateConnection = async (
-    fromId: string,
-    toId: string,
-    fromSide?: ConnectionSide,
-    toSide?: ConnectionSide,
-  ) => {
-    if (!canEditRoom) {
-      return;
-    }
-
-    const currentUser = userRef.current;
-
-    if (!currentUser?.profileComplete) {
-      setPendingProfileConnection({ fromId, fromSide, toId, toSide });
-      requestProfile();
-      return;
-    }
-
-    setBoardActionError("");
-
-    let response: Response;
-    let data: RoomMutationResponse & { connection?: RoomConnection };
-
-    try {
-      response = await fetch(roomApi, {
-        body: JSON.stringify({
-          action: "connection",
-          author: currentUser.name,
-          from: fromId,
-          fromSide,
-          to: toId,
-          toSide,
-          color: currentUser.color || "#48a7ff",
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-      data = (await response.json()) as RoomMutationResponse & { connection?: RoomConnection };
-    } catch {
-      setBoardActionError("Roomboard could not connect those cards. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "connection", reason: "request_error" });
-      return;
-    }
-
-    if (data.connection) {
-      trackRoomActivationEvent("Room Connection Created", {
-        connectionCount: connections.length + 1,
-      });
-      setConnections((current) => upsertUniqueConnection(current, data.connection!));
-      publishBoardEvent({ type: "connection:created", connection: data.connection });
-      void refreshRoomSnapshot();
-      return;
-    }
-
-    setBoardActionError(
-      response.status === 403
-        ? "Editor access is required to connect cards. Open an editor invite or ask the creator for a fresh link."
-        : response.status === 409
-          ? getRoomCapacityCopy(data)
-          : "Roomboard could not connect those cards. Try again in a moment.",
-    );
-    trackRoomActivationEvent("Room Board Action Failed", { action: "connection", status: response.status });
-  };
-
-  useEffect(() => {
-    if (!pendingProfileConnection || !user?.profileComplete || !canEditRoom) {
-      return;
-    }
-
-    const nextConnection = pendingProfileConnection;
-    setPendingProfileConnection(null);
-    void handleCreateConnection(
-      nextConnection.fromId,
-      nextConnection.toId,
-      nextConnection.fromSide,
-      nextConnection.toSide,
-    );
-  }, [canEditRoom, pendingProfileConnection, user?.profileComplete]);
-
-  const handleReverseConnection = async (connId: string) => {
-    if (!canEditRoom) {
-      return;
-    }
-
-    const response = await fetch(roomApi, {
-      body: JSON.stringify({
-        action: "reverse-connection",
-        author: userRef.current?.name,
-        connectionId: connId,
-      }),
-      headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-      method: "POST",
-    });
-
-    if (!response.ok) {
-      return;
-    }
-
-    const data = (await response.json()) as { connection?: RoomConnection };
-
-    if (data.connection) {
-      setConnections((current) => upsertUniqueConnection(current, data.connection!));
-      publishBoardEvent({ type: "connection:created", connection: data.connection });
-      void refreshRoomSnapshot();
-    }
-  };
-
-  const handleDeleteConnection = async (connId: string) => {
-    if (!canEditRoom) {
-      return;
-    }
-
-    const response = await fetch(roomApi, {
-      body: JSON.stringify({
-        action: "delete-connection",
-        author: user?.name,
-        connectionId: connId,
-      }),
-      headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-      method: "POST",
-    });
-    const data = (await response.json()) as { ok?: boolean };
-
-    if (data.ok) {
-      setConnections((current) => current.filter((connection) => connection.id !== connId));
-      publishBoardEvent({ type: "connection:deleted", connectionId: connId });
-      void refreshRoomSnapshot();
-    }
-  };
-
-  const handleDeleteItem = async (itemId: string) => {
-    if (!itemId || !canEditRoom) return;
-
-    const response = await fetch(roomApi, {
-      body: JSON.stringify({
-        action: "delete-item",
-        author: user?.name,
-        id: itemId,
-      }),
-      headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-      method: "POST",
-    });
-    const data = (await response.json()) as { ok?: boolean };
-
-    if (data.ok) {
-      setItems((current) => current.filter((item) => item.id !== itemId));
-      setConnections((current) =>
-        current.filter((connection) => connection.from !== itemId && connection.to !== itemId),
-      );
-      publishBoardEvent({ type: "item:deleted", itemId });
-      void refreshRoomSnapshot();
-    }
-
-    if (selectedId === itemId) {
-      setSelectedId("");
-    }
-  };
-
-  const handleDuplicateItem = async (itemId: string) => {
-    if (!itemId || !canEditRoom) return;
-
-    setBoardActionError("");
-
-    try {
-      const response = await fetch(roomApi, {
-        body: JSON.stringify({
-          action: "duplicate-item",
-          author: user?.name,
-          id: itemId,
-        }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "POST",
-      });
-      const data = (await response.json()) as RoomMutationResponse & { item?: RoomItem };
-
-      if (!data.item) {
-        setBoardActionError(
-          response.status === 403
-            ? "Editor access is required to duplicate cards."
-            : response.status === 409
-              ? getRoomCapacityCopy(data)
-              : "Roomboard could not duplicate the card. Try again in a moment.",
-        );
-        trackRoomActivationEvent("Room Board Action Failed", { action: "duplicate_card", status: response.status });
-        return;
-      }
-
-      setItems((current) => [...current, data.item!].sort((a, b) => a.createdAt - b.createdAt));
-      setSelectedId(data.item.id);
-      publishBoardEvent({ type: "item:created", item: data.item });
-      trackRoomActivationEvent("Room Card Duplicated", { cardType: data.item.type, itemCount: items.length + 1 });
-      void refreshRoomSnapshot();
-    } catch {
-      setBoardActionError("Roomboard could not duplicate the card. Try again in a moment.");
-      trackRoomActivationEvent("Room Board Action Failed", { action: "duplicate_card", reason: "request_error" });
-    }
-  };
-
-  const patchItem = async (input: { color?: string; id: string; styleVariant?: RoomItemStyleVariant }) => {
-    const response = await fetch(roomApi, {
-      body: JSON.stringify({ author: user?.name, ...input }),
-      headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-      method: "PATCH",
-    });
-    const data = (await response.json()) as { item?: RoomItem };
-
-    if (data.item) {
-      setItems((current) => current.map((item) => (item.id === data.item!.id ? data.item! : item)));
-      publishBoardEvent({ type: "item:updated", item: data.item });
-      void refreshRoomSnapshot();
-    }
-  };
-
-  const requestToggleRoomAccess = () => {
-    if (!canManageRoom || isTogglingAccess) {
-      return;
-    }
-
-    if (roomAccess === "link") {
-      setShowLockModal(true);
-      return;
-    }
-
-    void toggleRoomAccess();
-  };
-
-  const toggleRoomAccess = async () => {
-    if (!canManageRoom) {
-      return;
-    }
-
-    setIsTogglingAccess(true);
-    setControlError("");
-
-    try {
-      const nextAccess: RoomAccess = roomAccess === "locked" ? "link" : "locked";
-      const response = await fetch(roomApi, {
-        body: JSON.stringify({ action: "access", access: nextAccess }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "PATCH",
-      });
-
-      if (response.ok) {
-        setRoomAccessState(nextAccess);
-        const data = (await response.json()) as { room?: RoomSnapshot["room"] };
-
-        if (data.room) {
-          publishBoardEvent({ type: "room:updated", room: data.room });
-          void refreshRoomSnapshot();
-        }
-      } else {
-        setControlError(
-          response.status === 403
-            ? "Only the room creator can change access. Open the owner backup link if this is your room."
-            : "Roomboard could not change room access. Try again in a moment.",
-        );
-        trackRoomActivationEvent("Room Access Change Failed", {
-          status: response.status,
-        });
-      }
-    } catch {
-      setControlError("Roomboard could not reach the room service. Try again in a moment.");
-      trackRoomActivationEvent("Room Access Change Failed", {
-        reason: "request_error",
-      });
-    } finally {
-      setIsTogglingAccess(false);
-      setShowLockModal(false);
-    }
-  };
-
-  const getPublicSnapshotUrl = () => {
-    const url = new URL(window.location.href);
-    url.pathname = `/rooms/${roomId}/snapshot`;
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  };
-
-  const copyPublicSnapshotLink = async () => {
-    setCopyError("");
-    if (!(await copyTextToClipboard(getPublicSnapshotUrl()))) {
-      setCopyError("Roomboard could not copy the public snapshot link. Try again or use your browser share menu.");
-      return;
-    }
-
-    setCopiedSnapshotLink(true);
-    window.setTimeout(() => setCopiedSnapshotLink(false), 1400);
-  };
-
-  const togglePublicSnapshot = async () => {
-    if (!canManageRoom || isTogglingSnapshot) {
-      return;
-    }
-
-    const nextIsSnapshotPublic = !isSnapshotPublic;
-    setIsTogglingSnapshot(true);
-    setControlError("");
-
-    try {
-      const response = await fetch(roomApi, {
-        body: JSON.stringify({ action: "snapshot", isSnapshotPublic: nextIsSnapshotPublic }),
-        headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },
-        method: "PATCH",
-      });
-
-      if (!response.ok) {
-        setControlError(
-          response.status === 403
-            ? "Only the room creator can share or stop sharing a public snapshot. Open the owner backup link if this is your room."
-            : "Roomboard could not update public snapshot sharing. Try again in a moment.",
-        );
-        return;
-      }
-
-      const data = (await response.json()) as { room?: RoomSnapshot["room"] };
-      setIsSnapshotPublic(nextIsSnapshotPublic);
-      if (data.room) {
-        publishBoardEvent({ type: "room:updated", room: data.room });
-        void refreshRoomSnapshot();
-      }
-
-      trackProductEvent(nextIsSnapshotPublic ? "Room Snapshot Shared" : "Room Snapshot Sharing Stopped", {
-        role: permissions.role,
-      });
-      if (nextIsSnapshotPublic) {
-        await copyPublicSnapshotLink();
-      }
-    } catch {
-      setControlError("Roomboard could not reach the room service. Try again in a moment.");
-    } finally {
-      setIsTogglingSnapshot(false);
-    }
-  };
-
-  const closeRoom = async () => {
-    if (!canManageRoom) {
-      return;
-    }
-
-    setIsClosingRoom(true);
-    setControlError("");
-
-    try {
-      const response = await fetch(roomApi, { headers: roomCredentialsHeaders, method: "DELETE" });
-
-      if (response.ok || response.status === 404) {
-        if (response.ok) {
-          const data = (await response.json()) as { room?: RoomSnapshot["room"] };
-          publishBoardEvent({ type: "room:closed", room: data.room });
-
-          const completion = getDecisionCompletionSignal({
-            activities,
-            currentActor: user?.name ?? "",
-            items: items.map((item) => ({
-              commentCount: item.comments.length,
-              decisionSignalCount: item.decisionSignals?.length ?? 0,
-              status: item.status,
-            })),
-          });
-          const completionProperties = {
-            ...completion,
-            role: permissions.role,
-            starter: launchStarter || "unknown",
-          };
-          trackProductEvent("Room Decision Closed", completionProperties);
-          if (completion.qualifiesAsCollaborativeDecision) {
-            trackProductEvent("Collaborative Decision Completed", completionProperties);
-          }
-        }
-
-        router.push("/rooms");
-      } else {
-        setControlError(
-          response.status === 403
-            ? "Only the room creator can close this room. Open the owner backup link if this is your room."
-            : "Roomboard could not close the room. Try again in a moment.",
-        );
-        trackRoomActivationEvent("Room Close Failed", {
-          status: response.status,
-        });
-      }
-    } catch {
-      setControlError("Roomboard could not reach the room service. Try again in a moment.");
-      trackRoomActivationEvent("Room Close Failed", {
-        reason: "request_error",
-      });
-    } finally {
-      setIsClosingRoom(false);
-      setShowCloseModal(false);
-    }
-  };
-
-  const deleteRoomPermanently = async () => {
-    if (!canManageRoom) {
-      return;
-    }
-
-    setIsDeletingRoom(true);
-    setControlError("");
-
-    try {
-      const response = await fetch(`${roomApi}?permanent=true`, {
-        headers: roomCredentialsHeaders,
-        method: "DELETE",
-      });
-
-      if (response.ok || response.status === 404) {
-        for (const storageKey of [ownerTokensKey, inviteTokensKey]) {
-          const tokens = readStoredTokenMap(storageKey);
-          delete tokens[roomId];
-          writeStoredTokenMap(storageKey, tokens);
-        }
-        trackProductEvent("Room Permanently Deleted", { source: "room_surface" });
-        router.push("/rooms");
-      } else {
-        setControlError(
-          response.status === 403
-            ? "Only the room creator can permanently delete this room. Open the owner backup link if this is your room."
-            : "Roomboard could not confirm complete deletion. Retry, or contact support before sharing the room again.",
-        );
-        trackRoomActivationEvent("Room Permanent Delete Failed", { status: response.status });
-      }
-    } catch {
-      setControlError(
-        "Roomboard could not confirm complete deletion. Retry, or contact support before sharing the room again.",
-      );
-      trackRoomActivationEvent("Room Permanent Delete Failed", { reason: "request_error" });
-    } finally {
-      setIsDeletingRoom(false);
-      setShowCloseModal(false);
-      setIsConfirmingPermanentDelete(false);
-    }
-  };
-
-  const getRoomShareUrl = (kind: "current" | "owner" | RoomInviteRole) => {
-    const url = new URL(window.location.href);
-    url.pathname = `/rooms/${roomId}`;
-    url.search = "";
-
-    if (kind === "owner") {
-      if (!ownerToken) {
-        return null;
-      }
-
-      setRoomHashToken(url, "ownerToken", ownerToken);
-    } else if (kind !== "current") {
-      const token = inviteTokens[kind];
-
-      if (!token) {
-        return null;
-      }
-
-      setRoomHashToken(url, "invite", token);
-    } else if (inviteToken) {
-      setRoomHashToken(url, "invite", inviteToken);
-    } else if (permissions.role === "owner" && inviteTokens.editor) {
-      setRoomHashToken(url, "invite", inviteTokens.editor);
-    }
-
-    return url.toString();
-  };
-
-  const copyRoomLink = async (kind: "current" | "owner" | RoomInviteRole) => {
-    const url = getRoomShareUrl(kind);
-
-    if (!url) {
-      return;
-    }
-
-    setCopyError("");
-    if (!(await copyTextToClipboard(url.toString()))) {
-      setCopyError("Roomboard could not copy the link. Use the browser share menu or try again.");
-      trackRoomActivationEvent("Room Copy Failed", {
-        shareKind: kind,
-      });
-      return;
-    }
-
-    trackProductEvent(kind === "editor" || kind === "viewer" ? "Room Invite Copied" : "Room Link Copied", {
-      role: permissions.role,
-      shareKind: kind,
-    });
-    if (kind !== "current") {
-      setCopiedLaunchLinks((current) => ({ ...current, [kind]: true }));
-    }
-    if (kind === "owner") {
-      setShowLaunchGuideBackupReminder(false);
-    }
-    setCopiedShare(kind);
-    window.setTimeout(() => setCopiedShare(""), 1400);
-  };
-
-  const copyInviteMessage = async () => {
-    const url = getRoomShareUrl("editor");
-
-    if (!url) {
-      return;
-    }
-
-    const copy = launchStarterCopy[launchStarter] ?? launchStarterCopy["landing-review"];
-
-    setCopyError("");
-    if (
-      !(await copyTextToClipboard(
-        buildRoomInviteMessage({
-          prompt: copy.invitePrompt,
-          roomName: displayRoomName,
-          url,
-        }),
-      ))
-    ) {
-      setCopyError(
-        "Roomboard could not copy the invite message. Try the editor link button or your browser share menu.",
-      );
-      trackRoomActivationEvent("Room Copy Failed", {
-        shareKind: "invite_message",
-      });
-      return;
-    }
-
-    setCopiedLaunchLinks((current) => ({ ...current, editor: true }));
-    setCopiedInviteMessage(true);
-    trackProductEvent("Room Invite Message Copied", {
-      role: permissions.role,
-      shareKind: "editor",
-      starter: launchStarter || "unknown",
-    });
-    window.setTimeout(() => setCopiedInviteMessage(false), 1400);
-  };
-
-  const startRoomFromSample = async () => {
-    const starter = sampleStarterByRoomId[roomId];
-
-    if (!starter || isStartingSampleRoom) {
-      return;
-    }
-
-    setControlError("");
-    setIsStartingSampleRoom(true);
-    trackProductEvent("Sample Room Start Clicked", { source: "sample_room_banner", starter });
-    trackProductEvent("Room Start Clicked", { source: "sample_room_banner", starter });
-
-    try {
-      const response = await fetch("/api/rooms", {
-        body: JSON.stringify({
-          name: sampleStarterRoomNames[starter],
-          starterTemplate: starter,
-          visibility: "private",
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        setControlError(
-          response.status === 429
-            ? "Room creation is temporarily rate limited. Try again in a little while."
-            : "Roomboard could not open your private room from this sample. Try again.",
-        );
-        trackProductEvent("Room Create Failed", {
-          reason: response.status === 429 ? "rate_limited" : "bad_response",
-          source: "sample_room_banner",
-          starter,
-          status: response.status,
-        });
-        return;
-      }
-
-      const data = (await response.json()) as {
-        ownerToken?: string;
-        room?: {
-          access?: RoomAccess;
-          id: string;
-          itemCount?: number;
-          visibility?: RoomVisibility;
-        };
-      };
-
-      if (!data.room || !data.ownerToken) {
-        setControlError("Roomboard opened a response without a room. Try again.");
-        trackProductEvent("Room Create Failed", { reason: "missing_room", source: "sample_room_banner", starter });
-        return;
-      }
-
-      trackProductEvent("Room Created", {
-        access: data.room.access,
-        itemCount: data.room.itemCount,
-        source: "sample_room_banner",
-        starter,
-        visibility: data.room.visibility,
-      });
-
-      writeOwnerToken(data.room.id, data.ownerToken);
-
-      router.push(
-        buildRoomPathWithHashToken(data.room.id, "ownerToken", data.ownerToken, {
-          new: "1",
-          starter,
-        }),
-      );
-    } catch {
-      setControlError("Roomboard could not reach the room service. Try again.");
-      trackProductEvent("Room Create Failed", { reason: "request_error", source: "sample_room_banner", starter });
-    } finally {
-      setIsStartingSampleRoom(false);
-    }
-  };
-
-  const loadRoomRecap = useCallback(async () => {
-    setIsRecapLoading(true);
-    setCopiedRecap(false);
-
-    try {
-      const headers: Record<string, string> = {
-        ...(inviteToken ? { "X-Room-Invite-Token": inviteToken } : {}),
-        ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
-      };
-      const response = await fetch(`${roomApi}/recap`, {
-        headers: Object.keys(headers).length > 0 ? headers : undefined,
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = (await response.json()) as { recap?: RoomRecap };
-
-      if (!data.recap) {
-        return null;
-      }
-
-      setRoomRecap(data.recap);
-      return data.recap;
-    } finally {
-      setIsRecapLoading(false);
-    }
-  }, [inviteToken, ownerToken, roomApi]);
 
   const copyRoomRecap = async () => {
     const recap = roomRecap ?? (await loadRoomRecap());
@@ -3413,6 +2234,19 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     });
     setCopiedRecap(true);
     window.setTimeout(() => setCopiedRecap(false), 1400);
+  };
+
+  const requestToggleRoomAccess = () => {
+    if (!canManageRoom || isTogglingAccess) {
+      return;
+    }
+
+    if (roomAccess === "link") {
+      setShowLockModal(true);
+      return;
+    }
+
+    void toggleRoomAccess();
   };
 
   const exportRoomRecap = async () => {
@@ -3675,9 +2509,15 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
             setInlineEdit(null);
             if (!changed) return;
 
-            const optimistic = { ...item, updatedAt: Date.now() };
+            const sentAt = Date.now();
+            const optimistic = { ...item, updatedAt: sentAt };
             if (isTitle) optimistic.title = nextText;
             else optimistic.body = nextText;
+            pendingEditsRef.current.set(item.id, {
+              ...pendingEditsRef.current.get(item.id),
+              ...(isTitle ? { title: nextText } : { body: nextText }),
+              sentAt,
+            });
             setItems((curr) => curr.map((i) => (i.id === item.id ? optimistic : i)));
 
             void fetch(roomApi, {
@@ -3695,14 +2535,17 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
               })
               .then((data) => {
                 if (data?.item) {
+                  clearPendingEditField(pendingEditsRef.current, item.id, isTitle ? "title" : "body");
                   setItems((curr) => curr.map((i) => (i.id === data.item!.id ? data.item! : i)));
                   publishBoardEvent({ type: "item:updated", item: data.item });
                 } else {
+                  clearPendingEditField(pendingEditsRef.current, item.id, isTitle ? "title" : "body");
                   setBoardActionError("Roomboard could not save the edit. Try again in a moment.");
                   void refreshRoomSnapshot();
                 }
               })
               .catch(() => {
+                clearPendingEditField(pendingEditsRef.current, item.id, isTitle ? "title" : "body");
                 setBoardActionError("Roomboard could not save the edit. Try again in a moment.");
                 void refreshRoomSnapshot();
               });

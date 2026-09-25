@@ -288,3 +288,56 @@ export function getCardSize(item: RoomItem) {
     height: Math.max(252, item.height),
   };
 }
+
+export const imageCardChromeHeight = 144;
+export const imageCardPaddingX = 32;
+export const minImageFrameWidth = 220;
+export const maxImageFrameWidth = 420;
+export const maxImageFrameHeight = 320;
+
+/**
+ * Card dimensions for an uploaded image: the frame keeps the source aspect
+ * ratio within the min/max bounds, then card chrome (padding + header/footer)
+ * is added so the Pixi renderer and the mutation hook agree on card size.
+ */
+export function getImageCardSize(width?: number, height?: number) {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return { width: 268, height: 220 };
+  }
+
+  const aspectRatio = Math.min(3.2, Math.max(0.35, width / height));
+  let frameWidth = Math.min(maxImageFrameWidth, Math.max(minImageFrameWidth, width));
+  let frameHeight = frameWidth / aspectRatio;
+
+  if (frameHeight > maxImageFrameHeight) {
+    frameHeight = maxImageFrameHeight;
+    frameWidth = frameHeight * aspectRatio;
+  }
+
+  if (frameHeight < minImageFrameHeight) {
+    frameHeight = minImageFrameHeight;
+    frameWidth = frameHeight * aspectRatio;
+  }
+
+  frameWidth = Math.min(maxImageFrameWidth, Math.max(minImageFrameWidth, frameWidth));
+
+  return {
+    width: Math.round(frameWidth + imageCardPaddingX),
+    height: Math.round(frameHeight + imageCardChromeHeight),
+  };
+}
+
+/** Measure an image source in the browser; rejects when it cannot be read. */
+export function getImageDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+
+    if (/^https?:\/\//.test(src)) {
+      image.crossOrigin = "anonymous";
+    }
+    image.onload = () =>
+      resolve({ width: image.naturalWidth || image.width, height: image.naturalHeight || image.height });
+    image.onerror = () => reject(new Error("Image dimensions could not be read."));
+    image.src = src;
+  });
+}
