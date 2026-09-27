@@ -23,22 +23,44 @@ export function getRequestClientKey(request: Request) {
   );
 }
 
-export function checkRateLimit(key: string, limit: number, windowMs: number) {
+export type RateLimitCheckResult = {
+  allowed: boolean;
+  retryAfter: number;
+  /**
+   * Which limiter produced this decision. `memory` means the decision came
+   * from the per-instance in-process bucket: either Supabase isn't
+   * configured (local dev, tests) or the distributed RPC failed and we
+   * failed open. Per-instance limits on serverless reset on every cold
+   * start, so a persistent `memory` mode in production is a deployment
+   * problem worth alerting on (see ROADMAP.md "Remaining debt" #3).
+   */
+  mode: "distributed" | "memory";
+};
+
+function checkRateLimitResult(key: string, limit: number, windowMs: number): RateLimitCheckResult {
   const now = Date.now();
   const store = buckets();
   const bucket = store.get(key);
 
   if (!bucket || bucket.resetAt <= now) {
     store.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, retryAfter: 0 };
+    return { allowed: true, retryAfter: 0, mode: "memory" };
   }
 
   if (bucket.count >= limit) {
-    return { allowed: false, retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
+    return {
+      allowed: false,
+      retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+      mode: "memory",
+    };
   }
 
   bucket.count += 1;
-  return { allowed: true, retryAfter: 0 };
+  return { allowed: true, retryAfter: 0, mode: "memory" };
+}
+
+export function checkRateLimit(key: string, limit: number, windowMs: number) {
+  return checkRateLimitResult(key, limit, windowMs);
 }
 
 /**
@@ -50,11 +72,15 @@ export function checkRateLimit(key: string, limit: number, windowMs: number) {
  * unchanged. On RPC failure it fails open to the local bucket: a rate-limit
  * outage should degrade protection, not take the API down.
  */
-export async function checkRateLimitDistributed(key: string, limit: number, windowMs: number) {
+export async function checkRateLimitDistributed(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitCheckResult> {
   const supabase = getSupabaseAdminClient();
 
   if (!supabase) {
-    return checkRateLimit(key, limit, windowMs);
+    return checkRateLimitResult(key, limit, windowMs);
   }
 
   try {
@@ -66,16 +92,30 @@ export async function checkRateLimitDistributed(key: string, limit: number, wind
     const row = Array.isArray(data) ? data[0] : data;
 
     if (error || !row || typeof row.count !== "number") {
-      return checkRateLimit(key, limit, windowMs);
+      return checkRateLimitResult(key, limit, windowMs);
     }
 
     if (row.count > limit) {
       const resetAt = row.reset_at ? new Date(row.reset_at).getTime() : Date.now() + windowMs;
-      return { allowed: false, retryAfter: Math.max(1, Math.ceil((resetAt - Date.now()) / 1000)) };
+      return {
+        allowed: false,
+        retryAfter: Math.max(1, Math.ceil((resetAt - Date.now()) / 1000)),
+        mode: "distributed",
+      };
     }
 
-    return { allowed: true, retryAfter: 0 };
+    return { allowed: true, retryAfter: 0, mode: "distributed" };
   } catch {
-    return checkRateLimit(key, limit, windowMs);
+    return checkRateLimitResult(key, limit, windowMs);
   }
+}
+
+/**
+ * Response header naming the limiter that produced a rate-limit decision.
+ * Attach it to any route built on `checkRateLimitDistributed` so the
+ * silent fail-open path (ROADMAP.md "Remaining debt" #3) becomes visible
+ * in devtools, readiness checks, and logs instead of only in source.
+ */
+export function rateLimitModeHeader(result: RateLimitCheckResult): Record<string, string> {
+  return { "Roomboard-Rate-Limit-Mode": result.mode };
 }
