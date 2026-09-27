@@ -71,19 +71,42 @@ describe("request rate limiting", () => {
   });
 
   it("distributed limiter falls back to memory mode when Supabase is not configured", async () => {
-    // Test env has no SUPABASE_URL/SERVICE_ROLE_KEY, so the distributed
-    // limiter must take the documented fail-open path and still report
-    // which limiter made the decision.
+    // Isolate from ambient credentials: unset the admin client global and
+    // the env vars getSupabaseAdminClient reads, so the test exercises the
+    // documented fail-open path regardless of the developer/CI shell.
     const key = `test:${crypto.randomUUID()}`;
     setNow(3_000);
 
-    const result = await checkRateLimitDistributed(key, 1, 1_000);
+    const adminGlobal = globalThis as unknown as {
+      roomboardAdminClient?: unknown;
+    };
+    const originalClient = adminGlobal.roomboardAdminClient;
+    const envKeys = ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
+    const originalEnv: Record<string, string | undefined> = {};
+    for (const envKey of envKeys) {
+      originalEnv[envKey] = process.env[envKey];
+      delete process.env[envKey];
+    }
+    adminGlobal.roomboardAdminClient = undefined;
 
-    assert.deepEqual(result, { allowed: true, retryAfter: 0, mode: "memory" });
+    try {
+      const result = await checkRateLimitDistributed(key, 1, 1_000);
 
-    setNow(3_100);
-    const blocked = await checkRateLimitDistributed(key, 1, 1_000);
-    assert.deepEqual(blocked, { allowed: false, retryAfter: 1, mode: "memory" });
+      assert.deepEqual(result, { allowed: true, retryAfter: 0, mode: "memory" });
+
+      setNow(3_100);
+      const blocked = await checkRateLimitDistributed(key, 1, 1_000);
+      assert.deepEqual(blocked, { allowed: false, retryAfter: 1, mode: "memory" });
+    } finally {
+      adminGlobal.roomboardAdminClient = originalClient;
+      for (const envKey of envKeys) {
+        if (originalEnv[envKey] === undefined) {
+          delete process.env[envKey];
+        } else {
+          process.env[envKey] = originalEnv[envKey];
+        }
+      }
+    }
   });
 
   it("distributed limiter reports distributed mode when the RPC answers", async () => {

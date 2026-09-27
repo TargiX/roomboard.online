@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAppOrigin, getBillingPlan, getStripeClient } from "@/lib/billing";
 import { readJsonBody } from "@/lib/requestJson";
-import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
+import { checkRateLimitDistributed, getRequestClientKey, rateLimitModeHeader } from "@/lib/requestRateLimit";
 import { getSupabaseUserFromRequest } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,10 @@ export async function POST(request: Request) {
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many checkout attempts. Try again later." },
-      { headers: { "Retry-After": String(rateLimit.retryAfter) }, status: 429 },
+      {
+        headers: { "Retry-After": String(rateLimit.retryAfter), ...rateLimitModeHeader(rateLimit) },
+        status: 429,
+      },
     );
   }
 
