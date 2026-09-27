@@ -13,6 +13,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
     connection:deleted
     room:updated
     room:closed
+    room:message
   )
   @max_room_event_bytes 80_000
   @presence_min_interval_ms 40
@@ -96,6 +97,7 @@ defmodule RoomboardRealtimeWeb.RoomChannel do
           "connectionId",
           "item",
           "itemId",
+          "message",
           "room"
         ])
         |> Map.put("roomId", socket.assigns.room_id)

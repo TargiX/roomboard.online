@@ -2,6 +2,7 @@ import { Socket } from "phoenix";
 import type { RoomComment, RoomConnection, RoomItem, RoomSummary } from "@/lib/canvasRoom";
 import type { PresenceSnapshot } from "@/lib/presence";
 import { normalizeEndpoint, presenceStateToSnapshots, type PresenceState } from "./realtimeHelpers";
+import type { RoomMessage } from "./roomAgents";
 import { createPendingRoomEventQueue } from "./roomboardRealtimeQueue";
 
 const roomboardRealtimeJoinTimeoutMs = 45_000;
@@ -43,6 +44,10 @@ export type RoomboardBoardEvent =
   | {
       type: "room:closed";
       room?: RoomSummary;
+    }
+  | {
+      type: "room:message";
+      message: RoomMessage;
     };
 
 export type RoomboardBoardEventInput = RoomboardBoardEvent & {

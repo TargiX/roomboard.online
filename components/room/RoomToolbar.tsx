@@ -1,23 +1,32 @@
 "use client";
 
 import type { RefObject } from "react";
-import { FileImage, Link2, MousePointer2, StickyNote, Upload } from "lucide-react";
+import { FileImage, Link2, MessageSquare, MousePointer2, StickyNote, Upload } from "lucide-react";
 
 type RoomToolbarProps = {
   canEditRoom: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
   imageUrl: string;
   isConnecting: boolean;
+  showTranscript: boolean;
   actions: {
     createImageFromFile: (file: File) => void | Promise<void>;
     createImageFromUrl: (url: string) => void | Promise<void>;
     createItem: (type: "note") => void | Promise<void>;
     setConnecting: (connecting: boolean) => void;
+    toggleTranscript: () => void;
     setImageUrl: (value: string) => void;
   };
 };
 
-export function RoomToolbar({ actions, canEditRoom, fileInputRef, imageUrl, isConnecting }: RoomToolbarProps) {
+export function RoomToolbar({
+  actions,
+  canEditRoom,
+  fileInputRef,
+  imageUrl,
+  isConnecting,
+  showTranscript,
+}: RoomToolbarProps) {
   return (
     <div className="rb-toolbar" aria-label="Canvas tools">
       <button
@@ -46,6 +55,17 @@ export function RoomToolbar({ actions, canEditRoom, fileInputRef, imageUrl, isCo
       >
         <Link2 size={14} aria-hidden="true" />
         <span>{isConnecting ? "Linking" : "Link"}</span>
+      </button>
+      <span className="rb-toolbar__sep" />
+      <button
+        aria-label="Toggle room transcript"
+        aria-pressed={showTranscript}
+        className={`rb-tool ${showTranscript ? "active" : ""}`}
+        onClick={actions.toggleTranscript}
+        type="button"
+      >
+        <MessageSquare size={14} aria-hidden="true" />
+        <span>Transcript</span>
       </button>
       <span className="rb-toolbar__sep" />
       <form

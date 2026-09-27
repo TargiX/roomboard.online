@@ -34,6 +34,7 @@ export type RoomHeaderProps = {
   setRequiresProfile: (value: boolean) => void;
   setShowProfileModal: (open: boolean) => void;
   setShowCloseModal: (open: boolean) => void;
+  setShowAgentsModal: (open: boolean) => void;
 
   // Routing
   router: AppRouterInstance;
@@ -102,6 +103,7 @@ export function RoomHeader({
   setRequiresProfile,
   setShowProfileModal,
   setShowCloseModal,
+  setShowAgentsModal,
   router,
   canManageRoom,
   canEditRoom,
@@ -198,6 +200,19 @@ export function RoomHeader({
                     type="button"
                   >
                     {copiedShare === "owner" ? "Owner Link Copied" : "Copy Owner Backup"}
+                  </button>
+                )}
+                {canManageRoom && (
+                  <button
+                    className="rb-dropdown-item"
+                    onClick={() => {
+                      setShowMainMenu(false);
+                      setShowAgentsModal(true);
+                    }}
+                    style={dropdownItemStyle}
+                    type="button"
+                  >
+                    Connect agent
                   </button>
                 )}
                 {canManageRoom && isSnapshotPublic && (

@@ -80,10 +80,18 @@ defmodule RoomboardRealtimeWeb.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
-  plug Plug.Parsers,
+  # Wrap `Plug.Parsers` so a malformed JSON body on the internal-event
+  # endpoint surfaces as a 422 in the controller (the wrapper stashes the
+  # `Plug.Parsers.ParseError` on `conn.assigns`) rather than as a 400
+  # bubbled up from a parser crash. The standard parsers run unchanged for
+  # every other route.
+  plug RoomboardRealtimeWeb.WrapPlugParsers,
     parsers: [:urlencoded, :multipart, :json],
-    pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # Cache the raw request body so the internal-event controller can verify
+    # an HMAC over the exact bytes the caller signed — re-serializing the
+    # decoded params would re-order keys and break the signature.
+    body_reader: {RoomboardRealtimeWeb.CacheBodyReader, :read_body, []}
 
   plug Plug.MethodOverride
   plug Plug.Head

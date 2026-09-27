@@ -3,6 +3,25 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { resolveRoomUploadUrl } from "./roomboardUploads.ts";
+import {
+  AGENT_TURN_BUDGET,
+  MAX_ROOM_TRANSCRIPT,
+  createRoomAgentToken,
+  getAgentTurnBudgetState,
+  getRoomAgentColor,
+  hashRoomAgentToken,
+  normalizeRoomAgent,
+  normalizeRoomMessage,
+  normalizeRoomMessageBody,
+  normalizeRoomMessageMentions,
+  parseRoomAgentToken,
+  roomAgentTokenHashesMatch,
+  toPublicRoomAgent,
+  type RoomAgent,
+  type RoomAgentPublic,
+  type RoomMessage,
+  type RoomMessageAuthorKind,
+} from "./roomAgents.ts";
 
 export type RoomItemType = "image" | "note";
 export const roomItemStatuses = ["open", "reviewing", "approved", "changes_requested"] as const;
@@ -168,6 +187,8 @@ export type RoomSnapshot = {
   items: RoomItem[];
   connections: RoomConnection[];
   activities: RoomActivity[];
+  agents: RoomAgentPublic[];
+  messages: RoomMessage[];
   history?: RoomHistoryEntry[];
 };
 
@@ -255,6 +276,10 @@ type RoomDocument = {
   items: RoomItem[];
   connections: RoomConnection[];
   activities?: RoomActivity[];
+  /** BYO agent roster. Only sha256 token hashes are persisted. */
+  agents?: RoomAgent[];
+  /** Capped room transcript, oldest first, trimmed from the front. */
+  messages?: RoomMessage[];
   /** Optimistic-concurrency token; bumped by every conditional save. */
   version?: number;
 };
@@ -289,10 +314,12 @@ const DEFAULT_ROOM_OWNER_TOKEN = "demo-owner";
 const ROOMBOARD_SUPABASE_TABLE = process.env.ROOMBOARD_SUPABASE_TABLE ?? "roomboard_rooms";
 const maxRoomActivities = 80;
 export const roomCapacityLimits = {
+  agents: 8,
   comments: 240,
   connections: 160,
   decisionSignalsPerItem: 50,
   items: 80,
+  messages: MAX_ROOM_TRANSCRIPT,
 } as const;
 
 export type RoomCapacityKind = keyof typeof roomCapacityLimits;
@@ -321,6 +348,20 @@ export function assertRoomCapacity(kind: RoomCapacityKind, current: number, incr
   if (current + increment > limit) {
     throw new RoomCapacityError(kind, limit);
   }
+}
+
+export class RoomTurnBudgetError extends Error {
+  readonly budget: number;
+
+  constructor(budget: number) {
+    super(`Agents sent ${budget} messages in a row; the room is muted until a human speaks.`);
+    this.name = "RoomTurnBudgetError";
+    this.budget = budget;
+  }
+}
+
+export function isRoomTurnBudgetError(error: unknown): error is RoomTurnBudgetError {
+  return error instanceof RoomTurnBudgetError || (error instanceof Error && error.name === "RoomTurnBudgetError");
 }
 
 type SampleRoomConfig = {
@@ -495,6 +536,14 @@ function normalizeRoomDocument(room: RoomDocument): RoomDocument {
       .filter((activity): activity is RoomActivity => Boolean(activity))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, maxRoomActivities),
+    agents: (room.agents ?? [])
+      .map(normalizeRoomAgent)
+      .filter((agent): agent is RoomAgent => Boolean(agent))
+      .slice(0, roomCapacityLimits.agents),
+    messages: (room.messages ?? [])
+      .map(normalizeRoomMessage)
+      .filter((message): message is RoomMessage => Boolean(message))
+      .slice(-roomCapacityLimits.messages),
   };
 }
 
@@ -1584,9 +1633,7 @@ export function buildRoomDecisionBrief(items: RoomItem[]): RoomDecisionBrief {
   };
 }
 
-export function buildRoomRecap(
-  snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room">,
-): RoomRecap {
+export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room">): RoomRecap {
   const sections = recapStatusOrder.map((status) => {
     const sectionItems = snapshot.items
       .filter((item) => item.status === status)
@@ -1840,7 +1887,7 @@ export function isRoomConflictError(error: unknown): error is RoomConflictError 
   return error instanceof RoomConflictError || (error instanceof Error && error.name === "RoomConflictError");
 }
 
-async function mutateRoom<T>(roomId: string, mutation: RoomMutation<T>) {
+async function mutateRoom<T>(roomId: string, mutation: RoomMutation<T>, options: { audit?: boolean } = {}) {
   // Read-modify-write guarded by a version check: a concurrent writer bumps
   // the version, our conditional save fails, and we re-read and retry once.
   // Beyond that we surface a conflict instead of silently dropping a write.
@@ -1851,18 +1898,22 @@ async function mutateRoom<T>(roomId: string, mutation: RoomMutation<T>) {
     room.connections = dedupeRoomConnections(room.connections);
     room.updatedAt = Date.now();
     room.version = expectedVersion + 1;
-    // Capped audit trail: every committed version records the board shape so
-    // the room's evolution is inspectable without storing full diffs.
-    room.history = [
-      ...(room.history ?? []),
-      {
-        version: room.version,
-        updatedAt: room.updatedAt,
-        itemCount: room.items.length,
-        connectionCount: room.connections.length,
-        commentCount: room.items.reduce((total, item) => total + item.comments.length, 0),
-      },
-    ].slice(-50);
+    if (options.audit !== false) {
+      // Capped audit trail: every committed version records the board shape so
+      // the room's evolution is inspectable without storing full diffs.
+      // Presence-only mutations opt out so soft agent ticks do not push
+      // meaningful revisions out of the capped history.
+      room.history = [
+        ...(room.history ?? []),
+        {
+          version: room.version,
+          updatedAt: room.updatedAt,
+          itemCount: room.items.length,
+          connectionCount: room.connections.length,
+          commentCount: room.items.reduce((total, item) => total + item.comments.length, 0),
+        },
+      ].slice(-50);
+    }
 
     if (await getRoomStore().save(room, expectedVersion)) {
       await publishRoomSnapshot(roomId);
@@ -1985,6 +2036,8 @@ export async function getRoomSnapshot(
     items,
     connections: dedupeRoomConnections(room.connections),
     activities: (room.activities ?? []).slice(0, 50),
+    agents: (room.agents ?? []).map(toPublicRoomAgent),
+    messages: (room.messages ?? []).slice(-80),
     history: room.history ?? [],
   };
 }
@@ -2004,6 +2057,8 @@ export async function getPublicRoomSnapshot(roomId = DEFAULT_ROOM_ID): Promise<R
     items,
     connections: dedupeRoomConnections(room.connections),
     activities: (room.activities ?? []).slice(0, 50),
+    agents: (room.agents ?? []).map(toPublicRoomAgent),
+    messages: (room.messages ?? []).slice(-80),
   };
 }
 
@@ -2461,6 +2516,190 @@ export async function toggleRoomItemDecisionSignal(
     });
     return item;
   });
+}
+
+/* Agent rooms (Slice 1): roster management, token verification, transcript.
+ * Agents are owner-minted participants identified by `rba1_<roomId>_<secret>`
+ * tokens; only the sha256 hash is persisted. Identity is always derived from
+ * the verified token, never from request payloads. */
+
+export async function createRoomAgent(roomId: string, name: string, credentialsInput?: RoomCredentialsInput) {
+  const room = await getExistingRoom(roomId);
+
+  if (!room || getRoomRole(room, credentialsInput) !== "owner") {
+    return null;
+  }
+
+  const trimmedName = name.trim().slice(0, 24);
+
+  const token = createRoomAgentToken(roomId);
+  const agent = await mutateRoom(roomId, (doc) => {
+    const agents = doc.agents ?? [];
+    assertRoomCapacity("agents", agents.length);
+    const created: RoomAgent = {
+      id: crypto.randomUUID(),
+      name: name.trim().slice(0, 24) || "Agent",
+      color: getRoomAgentColor(agents.length),
+      tokenHash: hashRoomAgentToken(token),
+      createdAt: Date.now(),
+    };
+    doc.agents = [...agents, created];
+    return created;
+  });
+
+  return { agent: toPublicRoomAgent(agent), token };
+}
+
+export async function revokeRoomAgent(roomId: string, agentId: string, credentialsInput?: RoomCredentialsInput) {
+  const room = await getExistingRoom(roomId);
+
+  if (!room || getRoomRole(room, credentialsInput) !== "owner") {
+    return false;
+  }
+
+  return mutateRoom(roomId, (doc) => {
+    const agents = doc.agents ?? [];
+    const next = agents.filter((agent) => agent.id !== agentId);
+
+    if (next.length === agents.length) {
+      return false;
+    }
+
+    doc.agents = next;
+    return true;
+  });
+}
+
+export type RoomAgentAuthorization = {
+  agent: RoomAgent;
+  roomId: string;
+};
+
+export async function verifyRoomAgentToken(token: string): Promise<RoomAgentAuthorization | null> {
+  const parsed = parseRoomAgentToken(token);
+
+  if (!parsed) {
+    return null;
+  }
+
+  const room = await getRoomStore().get(parsed.roomId);
+
+  // Closed rooms stay readable for humans through snapshots, but agents go
+  // inert: no reads, no writes, no presence.
+  if (!room || room.closedAt) {
+    return null;
+  }
+
+  const candidateHash = hashRoomAgentToken(token);
+  const agent = (room.agents ?? []).find((entry) => roomAgentTokenHashesMatch(candidateHash, entry.tokenHash));
+  return agent ? { agent, roomId: room.id } : null;
+}
+
+/**
+ * Soft presence for polling agents: lastSeenAt with a throttle. Audit-free so
+ * presence ticks never push meaningful board revisions out of room history.
+ */
+export async function touchRoomAgent(roomId: string, agentId: string, minIntervalMs = 60_000) {
+  const room = await getRoomStore().get(roomId);
+  const agent = room?.agents?.find((entry) => entry.id === agentId);
+
+  if (!room || room.closedAt || !agent) {
+    return;
+  }
+
+  const now = Date.now();
+
+  if (agent.lastSeenAt && now - agent.lastSeenAt < minIntervalMs) {
+    return;
+  }
+
+  try {
+    await mutateRoom(
+      roomId,
+      (doc) => {
+        const target = (doc.agents ?? []).find((entry) => entry.id === agentId);
+
+        if (target) {
+          target.lastSeenAt = now;
+        }
+
+        return Boolean(target);
+      },
+      { audit: false },
+    );
+  } catch {
+    // Presence never fails the agent call that triggered it.
+  }
+}
+
+export async function addRoomMessage(
+  input: {
+    authorId: string;
+    authorName: string;
+    authorKind: RoomMessageAuthorKind;
+    body: string;
+    mentions?: string[];
+  },
+  roomId = DEFAULT_ROOM_ID,
+) {
+  return mutateRoom(roomId, (room) => {
+    const messages = room.messages ?? [];
+
+    // Turn budget: after AGENT_TURN_BUDGET consecutive agent messages the
+    // room is muted for agents until a human speaks again.
+    if (input.authorKind === "agent" && getAgentTurnBudgetState(messages).exhausted) {
+      throw new RoomTurnBudgetError(AGENT_TURN_BUDGET);
+    }
+
+    const body = normalizeRoomMessageBody(input.body);
+
+    if (!body) {
+      return null;
+    }
+
+    const knownAgentIds = new Set((room.agents ?? []).map((agent) => agent.id));
+    const mentions = normalizeRoomMessageMentions(input.mentions, knownAgentIds);
+    const message: RoomMessage = {
+      id: crypto.randomUUID(),
+      authorId: input.authorId.trim().slice(0, 96) || "unknown",
+      authorName: input.authorName.trim().slice(0, 24) || (input.authorKind === "agent" ? "Agent" : "Editor"),
+      authorKind: input.authorKind,
+      body,
+      ...(mentions.length > 0 ? { mentions } : {}),
+      createdAt: Date.now(),
+    };
+
+    // The transcript trims from the front instead of hard-failing at
+    // capacity: a live room must never become unwritable because it got long.
+    room.messages = [...messages, message].slice(-roomCapacityLimits.messages);
+    return message;
+  });
+}
+
+export async function readRoomMessages(roomId: string, options: { cursor?: string; limit?: number } = {}) {
+  const room = await getRoomStore().get(roomId);
+
+  if (!room || room.closedAt) {
+    return null;
+  }
+
+  const messages = room.messages ?? [];
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), 200);
+  const cursorIndex = options.cursor ? messages.findIndex((message) => message.id === options.cursor) : -1;
+  // A cursor that fell out of the capped transcript means the reader is far
+  // behind: re-sync from the recent tail and say so.
+  const reset = Boolean(options.cursor) && cursorIndex < 0;
+  const from = cursorIndex >= 0 ? cursorIndex + 1 : Math.max(0, messages.length - limit);
+  const page = messages.slice(from, from + limit);
+
+  return {
+    agents: (room.agents ?? []).map(toPublicRoomAgent),
+    messages: page,
+    nextCursor: page.length > 0 ? page[page.length - 1].id : (options.cursor ?? null),
+    reset,
+    roomName: room.name,
+    turnBudget: getAgentTurnBudgetState(messages),
+  };
 }
 
 export async function createRoomConnection(
