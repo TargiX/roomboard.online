@@ -22,6 +22,7 @@ import type {
   RoomRecap,
   RoomRecapSection,
 } from "@/lib/canvasRoom";
+import type { RoomAgentPublic } from "@/lib/roomAgents";
 import { isDecisionSignalOwnedByUser, type LocalUser } from "./roomTypes";
 export type InspectorDraft = {
   body: string;
@@ -44,6 +45,7 @@ type RoomInspectorProps = {
     board: RoomActivity[];
     selected: RoomActivity[];
   };
+  agents: RoomAgentPublic[];
   canEditRoom: boolean;
   comment: string;
   connections: RoomConnection[];
@@ -59,7 +61,12 @@ type RoomInspectorProps = {
     duplicateItem: (itemId: string) => void | Promise<void>;
     exportRoomRecap: () => void | Promise<void>;
     loadRoomRecap: () => void | Promise<unknown>;
-    patchItem: (input: { color?: string; id: string; styleVariant?: RoomItemStyleVariant }) => Promise<void>;
+    patchItem: (input: {
+      assigneeId?: string | null;
+      color?: string;
+      id: string;
+      styleVariant?: RoomItemStyleVariant;
+    }) => Promise<void>;
     reverseConnection: (connectionId: string) => void | Promise<void>;
     saveSelected: () => void | Promise<void>;
     selectItem: (itemId: string) => void;
@@ -83,6 +90,7 @@ type RoomInspectorProps = {
 export function RoomInspector({
   actions,
   activities,
+  agents,
   canEditRoom,
   comment,
   connections,
@@ -192,6 +200,26 @@ export function RoomInspector({
                 );
               })}
             </div>
+          </div>
+
+          <div className="rb-field">
+            <label className="rb-field__label" htmlFor="room-assignee">
+              Assigned to
+            </label>
+            <select
+              className="rb-input"
+              disabled={!canEditRoom}
+              id="room-assignee"
+              onChange={(event) => void actions.patchItem({ assigneeId: event.target.value || null, id: selected.id })}
+              value={selected.assigneeId ?? ""}
+            >
+              <option value="">Unassigned</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={`agent:${agent.id}`}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="rb-field">

@@ -3072,6 +3072,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       />
 
       <RoomInspector
+        agents={roomAgents}
         actions={{
           copyRoomRecap,
           deleteConnection: handleDeleteConnection,

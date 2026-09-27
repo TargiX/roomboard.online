@@ -8,6 +8,7 @@ import {
   createRoomAgentToken,
   getAgentTurnBudgetState,
   hashRoomAgentToken,
+  extractMentions,
   mergeRoomMessages,
   normalizeRoomMessage,
   normalizeRoomMessageMentions,
@@ -145,3 +146,25 @@ describe("public roster projection", () => {
   });
 });
 
+describe("extractMentions", () => {
+  const agents = [
+    { id: "a1", name: "Hermes" },
+    { id: "a2", name: "Hermes 2" },
+    { id: "a3", name: "atlas" },
+  ];
+
+  it("resolves @name tokens against the roster, case-insensitively", () => {
+    assert.deepEqual(extractMentions("ping @hermes and @Hermes 2 please", agents), ["a2", "a1"]);
+  });
+
+  it("does not match name prefixes or unknown names", () => {
+    assert.deepEqual(extractMentions("@Hermes2 is not a roster name", agents), []);
+    assert.deepEqual(extractMentions("hello @stranger", agents), []);
+  });
+
+  it("caps mentions at the roster limit", () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({ id: `a${index}`, name: `agent${index}` }));
+    const body = many.map((agent) => `@${agent.name}`).join(" ");
+    assert.equal(extractMentions(body, many).length, MAX_ROOM_MESSAGE_MENTIONS);
+  });
+});

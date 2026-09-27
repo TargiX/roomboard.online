@@ -82,4 +82,30 @@ describe("getRoomDecisionCheckpoint", () => {
       },
     );
   });
+
+  it("adds agent backing as context without changing the checkpoint tone", () => {
+    assert.deepEqual(
+      getRoomDecisionCheckpoint({
+        ...makeRoom({ itemCount: 3, statusCounts: { approved: 3 } }),
+        agentBackedCount: 2,
+      }),
+      {
+        detail: "3/3 cards approved · 2 backed by agents",
+        label: "Decision ready",
+        tone: "ready",
+      },
+    );
+
+    assert.deepEqual(
+      getRoomDecisionCheckpoint({
+        ...makeRoom({ itemCount: 2, statusCounts: { approved: 1, open: 1 } }),
+        agentBackedCount: 1,
+      }),
+      {
+        detail: "1 card needs a call · 1 backed by agents",
+        label: "Decision checkpoint",
+        tone: "needs_decision",
+      },
+    );
+  });
 });
