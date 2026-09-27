@@ -1507,6 +1507,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
 
       const created = data.agent;
       setRoomAgents((current) => [...current.filter((agent) => agent.id !== created.id), created]);
+      trackProductEvent("Agent Connected", { arbiter: isArbiter });
       return { agent: created, token: data.token };
     },
     [ownerToken, roomApi],

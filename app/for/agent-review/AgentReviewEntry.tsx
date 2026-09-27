@@ -96,7 +96,7 @@ export function AgentReviewEntry() {
       }
 
       writeOwnerToken(data.room.id, data.ownerToken);
-      trackProductEvent("Agent Room Created", { roomId: data.room.id });
+      trackProductEvent("Agent Room Created", { starter: "agent-review" });
       router.push(
         buildRoomPathWithHashToken(data.room.id, "ownerToken", data.ownerToken, {
           connectAgent: "1",
