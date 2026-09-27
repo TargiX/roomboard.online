@@ -29,6 +29,10 @@ export type RoomAgent = {
   /** sha256 hex of the full agent token; the token itself is shown once. */
   tokenHash: string;
   createdAt: number;
+  /** Observer role: read + flag tools only, never writes or votes. */
+  isArbiter?: boolean;
+  /** Moderation mute: writes rejected until the owner releases. */
+  muted?: boolean;
   /** Soft presence: last authenticated MCP call, throttled. */
   lastSeenAt?: number;
 };
@@ -61,6 +65,8 @@ export const roomAgentPalette = [
   "#f27272",
 ] as const;
 
+const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const ROLE_MARKER_PATTERN = /^([ \t]*)(system|assistant|developer|tool)[ \t]*:/gim;
 const ROOM_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,96}$/;
 // Secrets are hex so the last underscore in a token is always the separator,
 // even when the room id itself contains underscores.
@@ -81,6 +87,8 @@ export function toPublicRoomAgent(agent: RoomAgent): RoomAgentPublic {
     name: agent.name,
     color: agent.color,
     createdAt: agent.createdAt,
+    ...(agent.isArbiter === true ? { isArbiter: true } : {}),
+    ...(agent.muted === true ? { muted: true } : {}),
     ...(agent.lastSeenAt ? { lastSeenAt: agent.lastSeenAt } : {}),
   };
 }
@@ -131,8 +139,22 @@ export function roomAgentTokenHashesMatch(candidateHash: string, storedHash: str
   return candidate.length === stored.length && timingSafeEqual(candidate, stored);
 }
 
+/**
+ * Layer 1 of the injection defense: strip control characters and neuter
+ * line-leading role impersonation ("system:", "assistant:") so transcript
+ * text can never frame itself as planner output to the next reader.
+ */
 export function normalizeRoomMessageBody(body: unknown): string {
-  return typeof body === "string" ? body.trim().slice(0, MAX_ROOM_MESSAGE_BODY) : "";}
+  if (typeof body !== "string") {
+    return "";
+  }
+
+  return body
+    .replace(CONTROL_CHARS_PATTERN, "")
+    .replace(ROLE_MARKER_PATTERN, "$1[quoted $2]:")
+    .trim()
+    .slice(0, MAX_ROOM_MESSAGE_BODY);
+}
 
 export function normalizeRoomMessageMentions(mentions: unknown, knownAgentIds?: Set<string>): string[] {
   if (!Array.isArray(mentions)) {
@@ -219,6 +241,8 @@ export function normalizeRoomAgent(value: unknown): RoomAgent | null {
     tokenHash: candidate.tokenHash,
     createdAt:
       typeof candidate.createdAt === "number" && Number.isFinite(candidate.createdAt) ? candidate.createdAt : 0,
+    ...(candidate.isArbiter === true ? { isArbiter: true } : {}),
+    ...(candidate.muted === true ? { muted: true } : {}),
     ...(typeof candidate.lastSeenAt === "number" && Number.isFinite(candidate.lastSeenAt)
       ? { lastSeenAt: candidate.lastSeenAt }
       : {}),

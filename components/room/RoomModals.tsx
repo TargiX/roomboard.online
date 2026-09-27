@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
-import { Archive, Bot, Copy, LockKeyhole, Trash2 } from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { Archive, Bot, Copy, LockKeyhole, ShieldCheck, Trash2, VolumeX } from "lucide-react";
 import type { RoomPermissions } from "@/lib/canvasRoom";
 import type { LocalUser, ProductAnalyticsProperties } from "@/components/room/roomTypes";
 import type { RoomAgentPublic } from "@/lib/roomAgents";
@@ -277,8 +277,14 @@ export function RoomProfileModal({
 
 export type RoomAgentsModalProps = {
   agents: RoomAgentPublic[];
-  onCreate: (name: string) => Promise<{ agent: RoomAgentPublic; token: string } | null>;
+  onCreate: (
+    name: string,
+    options: { isArbiter: boolean },
+  ) => Promise<{ agent: RoomAgentPublic; token: string } | null>;
   onRevoke: (agentId: string) => Promise<boolean>;
+  moderation: { autoMuteFlags: number | null };
+  onSetModeration: (value: number | null) => Promise<boolean>;
+  onSetMuted: (agentId: string, muted: boolean) => Promise<boolean>;
   show: boolean;
   setShow: (open: boolean) => void;
 };
@@ -294,12 +300,16 @@ const codeBlockStyle: CSSProperties = {
 
 /**
  * Owner-only agent management: mints per-agent MCP tokens (shown exactly
- * once) and lists the roster with soft presence.
+ * once), lists the roster with soft presence, supports moderator arbiters,
+ * per-agent mute toggling, and a flag-threshold auto-mute policy.
  */
 export function RoomAgentsModal({
   agents,
   onCreate,
   onRevoke,
+  moderation,
+  onSetModeration,
+  onSetMuted,
   show,
   setShow,
 }: RoomAgentsModalProps) {
@@ -308,7 +318,25 @@ export function RoomAgentsModal({
   const [error, setError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [name, setName] = useState("");
+  const [isArbiter, setIsArbiter] = useState(false);
   const [revokingId, setRevokingId] = useState("");
+  const [mutingId, setMutingId] = useState("");
+  const [moderationDraft, setModerationDraft] = useState(() =>
+    moderation.autoMuteFlags === null ? "" : String(moderation.autoMuteFlags),
+  );
+  const [savingModeration, setSavingModeration] = useState(false);
+  const [moderationFeedback, setModerationFeedback] = useState("");
+  const [moderationFeedbackTone, setModerationFeedbackTone] = useState<"ok" | "err" | "">("");
+
+  // Re-seed on every open: the moderation policy can arrive with the first
+  // snapshot, i.e. after this component mounted with an empty policy.
+  useEffect(() => {
+    if (show) {
+      setModerationDraft(moderation.autoMuteFlags === null ? "" : String(moderation.autoMuteFlags));
+      setModerationFeedback("");
+      setModerationFeedbackTone("");
+    }
+  }, [show, moderation.autoMuteFlags]);
 
   if (!show) return null;
 
@@ -323,6 +351,7 @@ export function RoomAgentsModal({
     setCreated(null);
     setError("");
     setName("");
+    setIsArbiter(false);
   };
 
   const create = async () => {
@@ -330,12 +359,13 @@ export function RoomAgentsModal({
     if (!trimmed || isCreating) return;
     setIsCreating(true);
     setError("");
-    const result = await onCreate(trimmed);
+    const result = await onCreate(trimmed, { isArbiter });
     setIsCreating(false);
 
     if (result) {
       setCreated(result);
       setName("");
+      setIsArbiter(false);
     } else {
       setError("Could not connect the agent. Only the room owner can create agent tokens.");
     }
@@ -354,6 +384,36 @@ export function RoomAgentsModal({
     setRevokingId(agentId);
     await onRevoke(agentId);
     setRevokingId("");
+  };
+
+  const toggleMuted = async (agentId: string, muted: boolean) => {
+    if (mutingId) return;
+    setMutingId(agentId);
+    await onSetMuted(agentId, muted);
+    setMutingId("");
+  };
+
+  const saveModeration = async () => {
+    if (savingModeration) return;
+    const trimmed = moderationDraft.trim();
+    const next = trimmed === "" ? null : Number(trimmed);
+    if (next !== null && (!Number.isFinite(next) || !Number.isInteger(next) || next < 1 || next > 20)) {
+      setModerationFeedbackTone("err");
+      setModerationFeedback("Pick a whole number between 1 and 20, or leave it empty to disable auto-mute.");
+      return;
+    }
+    setSavingModeration(true);
+    setModerationFeedback("");
+    setModerationFeedbackTone("");
+    const ok = await onSetModeration(next);
+    setSavingModeration(false);
+    if (ok) {
+      setModerationFeedbackTone("ok");
+      setModerationFeedback(next === null ? "Auto-mute disabled." : `Auto-mute after ${next} flags saved.`);
+    } else {
+      setModerationFeedbackTone("err");
+      setModerationFeedback("Could not save the moderation policy.");
+    }
   };
 
   return (
@@ -408,6 +468,22 @@ export function RoomAgentsModal({
                   {isCreating ? "Connecting" : "Create token"}
                 </button>
               </div>
+              <label
+                style={{
+                  alignItems: "center",
+                  display: "inline-flex",
+                  fontSize: 12,
+                  gap: 8,
+                }}
+              >
+                <input
+                  checked={isArbiter}
+                  disabled={isCreating}
+                  onChange={(event) => setIsArbiter(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Security arbiter (read-only, can flag messages)</span>
+              </label>
               {error ? (
                 <p className="rb-empty-copy" style={{ color: "var(--danger, #f43f5e)" }}>
                   {error}
@@ -423,6 +499,42 @@ export function RoomAgentsModal({
                       <span style={{ alignItems: "center", display: "inline-flex", gap: 8, minWidth: 0 }}>
                         <span className="presence-dot" style={{ background: agent.color }} />
                         <span style={{ fontSize: 12.5 }}>{agent.name}</span>
+                        {agent.isArbiter ? (
+                          <span
+                            style={{
+                              alignItems: "center",
+                              border: "1px solid var(--border)",
+                              borderRadius: 999,
+                              color: "var(--text-2)",
+                              display: "inline-flex",
+                              fontSize: 10.5,
+                              gap: 4,
+                              padding: "2px 7px",
+                            }}
+                            title="Security arbiter"
+                          >
+                            <ShieldCheck size={11} aria-hidden="true" />
+                            arbiter
+                          </span>
+                        ) : null}
+                        {agent.muted ? (
+                          <span
+                            style={{
+                              alignItems: "center",
+                              border: "1px solid color-mix(in srgb, var(--warn, #c4942e) 40%, var(--border))",
+                              borderRadius: 999,
+                              color: "var(--warn, #c4942e)",
+                              display: "inline-flex",
+                              fontSize: 10.5,
+                              gap: 4,
+                              padding: "2px 7px",
+                            }}
+                            title="Muted by room policy"
+                          >
+                            <VolumeX size={11} aria-hidden="true" />
+                            muted
+                          </span>
+                        ) : null}
                         <span style={{ color: "var(--text-3)", fontSize: 11 }}>
                           {agent.lastSeenAt ? `seen ${new Date(agent.lastSeenAt).toLocaleString()}` : "never connected"}
                         </span>
@@ -430,7 +542,21 @@ export function RoomAgentsModal({
                       <span style={{ display: "inline-flex", gap: 6 }}>
                         <button
                           className="rb-btn ghost sm"
-                          disabled={revokingId === agent.id || isCreating}
+                          disabled={Boolean(mutingId) || isCreating}
+                          onClick={() => void toggleMuted(agent.id, !agent.muted)}
+                          type="button"
+                        >
+                          {mutingId === agent.id
+                            ? agent.muted
+                              ? "Unmuting"
+                              : "Muting"
+                            : agent.muted
+                              ? "Unmute"
+                              : "Mute"}
+                        </button>
+                        <button
+                          className="rb-btn ghost sm"
+                          disabled={revokingId === agent.id || Boolean(mutingId)}
                           onClick={() => void revoke(agent.id)}
                           type="button"
                         >
@@ -443,6 +569,58 @@ export function RoomAgentsModal({
               ) : (
                 <p className="rb-empty-copy">No agents connected yet.</p>
               )}
+              <div
+                style={{
+                  borderTop: "1px solid var(--border)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  marginTop: 4,
+                  paddingTop: 10,
+                }}
+              >
+                <span className="rb-field__label">Moderation policy</span>
+                <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
+                  <input
+                    aria-label="Auto-mute after N flags"
+                    className="rb-input"
+                    max={20}
+                    min={1}
+                    onChange={(event) => {
+                      setModerationDraft(event.target.value);
+                      setModerationFeedback("");
+                      setModerationFeedbackTone("");
+                    }}
+                    placeholder="off"
+                    style={{ maxWidth: 90 }}
+                    type="number"
+                    value={moderationDraft}
+                  />
+                  <button
+                    className="rb-btn ghost sm"
+                    disabled={savingModeration}
+                    onClick={() => void saveModeration()}
+                    type="button"
+                  >
+                    {savingModeration ? "Saving" : "Save"}
+                  </button>
+                </div>
+                <p className="rb-empty-copy">Auto-mute an agent after N flags on its messages</p>
+                <p className="rb-empty-copy" style={{ fontSize: 11 }}>
+                  Leave empty to disable auto-mute.
+                </p>
+                {moderationFeedback ? (
+                  <p
+                    className="rb-empty-copy"
+                    style={{
+                      color: moderationFeedbackTone === "err" ? "var(--danger, #f43f5e)" : "var(--ok, #2d9d6a)",
+                      fontSize: 11,
+                    }}
+                  >
+                    {moderationFeedback}
+                  </p>
+                ) : null}
+              </div>
             </div>
           )}
         </div>

@@ -66,7 +66,9 @@ import {
   mergeRoomMessages,
   type RoomAgentPublic,
   type RoomMessage,
+  type RoomMessageFlag,
 } from "@/lib/roomAgents";
+import { getRoomReviewRoundState, type RoomReviewRound } from "@/lib/roomRounds";
 import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
 import { createLocalId, getInviteToken, getOwnerToken, persistAuthorizedInviteToken } from "@/lib/roomTokens";
 import { getRoomboardPanelState } from "@/lib/roomboardPanelState";
@@ -918,6 +920,9 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const [roomAgents, setRoomAgents] = useState<RoomAgentPublic[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const [showAgentsModal, setShowAgentsModal] = useState(false);
+  const [roomFlags, setRoomFlags] = useState<RoomMessageFlag[]>([]);
+  const [roomRounds, setRoomRounds] = useState<RoomReviewRound[]>([]);
+  const [roomModeration, setRoomModeration] = useState<{ autoMuteFlags?: number } | undefined>(undefined);
   const [displayRoomName, setDisplayRoomName] = useState(roomName);
   const [roomAccess, setRoomAccessState] = useState<RoomAccess>("link");
   const [roomVisibility, setRoomVisibilityState] = useState<RoomVisibility>("private");
@@ -1041,6 +1046,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const roomApi = `/api/rooms/${roomId}`;
   const turnBudget = useMemo(() => getAgentTurnBudgetState(roomMessages), [roomMessages]);
+  const roundState = useMemo(
+    () => (selected ? getRoomReviewRoundState(roomRounds, items, roomAgents, selected.id) : null),
+    [items, roomAgents, roomRounds, selected],
+  );
   const roomQueryParams = new URLSearchParams();
   if (ownerToken) roomQueryParams.set("ownerToken", ownerToken);
   if (inviteToken) roomQueryParams.set("inviteToken", inviteToken);
@@ -1295,6 +1304,9 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       // snapshot fetch started must not be rolled back by the stale page.
       setRoomMessages((current) => mergeRoomMessages(current, snapshot.messages ?? []));
       setRoomAgents(snapshot.agents ?? []);
+      setRoomFlags(snapshot.flags ?? []);
+      setRoomRounds(snapshot.rounds ?? []);
+      setRoomModeration(snapshot.moderation);
       setRoomHistory(snapshot.history ?? []);
       hasRoomSnapshotRef.current = true;
       setHasRoomSnapshot(true);
@@ -1454,14 +1466,14 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   );
 
   const createRoomAgentAction = useCallback(
-    async (name: string) => {
+    async (name: string, isArbiter: boolean) => {
       const response = await fetch(roomApi, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
           ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
         },
-        body: JSON.stringify({ action: "agent-create", name }),
+        body: JSON.stringify({ action: "agent-create", name, isArbiter }),
       });
 
       if (!response.ok) {
@@ -1501,6 +1513,109 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     },
     [ownerToken, roomApi],
   );
+
+  const flagTranscriptMessage = useCallback(
+    async (messageId: string) => {
+      const response = await fetch(roomApi, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({ action: "flag", messageId }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      void refreshRoomSnapshot();
+      return true;
+    },
+    [ownerToken, refreshRoomSnapshot, roomApi],
+  );
+
+  const setAgentMutedAction = useCallback(
+    async (agentId: string, muted: boolean) => {
+      const response = await fetch(roomApi, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({ action: "agent-mute", agentId, muted }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      void refreshRoomSnapshot();
+      return true;
+    },
+    [ownerToken, refreshRoomSnapshot, roomApi],
+  );
+
+  const setModerationPolicyAction = useCallback(
+    async (autoMuteFlags: number | null) => {
+      const response = await fetch(roomApi, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({ action: "moderation-policy", autoMuteFlags }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      void refreshRoomSnapshot();
+      return true;
+    },
+    [ownerToken, refreshRoomSnapshot, roomApi],
+  );
+
+  const startReviewRoundAction = useCallback(async () => {
+    if (!selectedId) {
+      return;
+    }
+
+    const response = await fetch(roomApi, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        ...(inviteToken ? { "X-Room-Invite-Token": inviteToken } : {}),
+        ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+      },
+      body: JSON.stringify({ action: "round-start", itemId: selectedId }),
+    });
+
+    if (response.ok) {
+      void refreshRoomSnapshot();
+    }
+  }, [inviteToken, ownerToken, refreshRoomSnapshot, roomApi, selectedId]);
+
+  const closeReviewRoundAction = useCallback(async () => {
+    if (!selectedId) {
+      return;
+    }
+
+    const response = await fetch(roomApi, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        ...(inviteToken ? { "X-Room-Invite-Token": inviteToken } : {}),
+        ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+      },
+      body: JSON.stringify({ action: "round-close", itemId: selectedId }),
+    });
+
+    if (response.ok) {
+      void refreshRoomSnapshot();
+    }
+  }, [inviteToken, ownerToken, refreshRoomSnapshot, roomApi, selectedId]);
 
   const requestProfile = () => {
     setRequiresProfile(true);
@@ -3074,6 +3189,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       <RoomInspector
         agents={roomAgents}
         actions={{
+          closeReviewRound: () => void closeReviewRoundAction(),
           copyRoomRecap,
           deleteConnection: handleDeleteConnection,
           deleteItem: handleDeleteItem,
@@ -3091,6 +3207,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
             if (patch.imageUrl !== undefined) setImageUrl(patch.imageUrl);
             if (patch.status !== undefined) setDraftStatus(patch.status);
           },
+          startReviewRound: () => void startReviewRoundAction(),
           submitComment,
           toggleDecisionSignal,
           updateSelectedStatus,
@@ -3120,15 +3237,19 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         }}
         selected={selected}
         user={user}
+        roundState={roundState}
       />
 
       <RoomTranscriptPanel
         agents={roomAgents}
         canEdit={canEditRoom}
+        canManage={canManageRoom}
         currentUserId={user?.id}
+        flags={roomFlags}
         isRoomClosed={roomClosed}
         messages={roomMessages}
         onClose={() => setShowTranscript(false)}
+        onFlag={flagTranscriptMessage}
         onSend={sendTranscriptMessage}
         show={showTranscript}
         turnBudget={turnBudget}
@@ -3214,8 +3335,11 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
 
       <RoomAgentsModal
         agents={roomAgents}
-        onCreate={createRoomAgentAction}
+        moderation={{ autoMuteFlags: roomModeration?.autoMuteFlags ?? null }}
+        onCreate={(name, options) => createRoomAgentAction(name, options.isArbiter)}
         onRevoke={revokeRoomAgentAction}
+        onSetModeration={setModerationPolicyAction}
+        onSetMuted={setAgentMutedAction}
         setShow={setShowAgentsModal}
         show={showAgentsModal}
       />

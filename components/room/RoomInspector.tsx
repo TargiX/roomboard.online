@@ -6,6 +6,7 @@ import {
   Download,
   FileImage,
   FileText,
+  Gavel,
   Link2,
   MessageSquarePlus,
   RefreshCw,
@@ -23,6 +24,7 @@ import type {
   RoomRecapSection,
 } from "@/lib/canvasRoom";
 import type { RoomAgentPublic } from "@/lib/roomAgents";
+import type { RoomReviewRoundPhase } from "@/lib/roomRounds";
 import { isDecisionSignalOwnedByUser, type LocalUser } from "./roomTypes";
 export type InspectorDraft = {
   body: string;
@@ -52,9 +54,11 @@ type RoomInspectorProps = {
   draft: InspectorDraft;
   items: RoomItem[];
   recap: InspectorRecap;
+  roundState: { pendingAgentNames: string[]; phase: RoomReviewRoundPhase; roundId: string } | null;
   selected: RoomItem | null;
   user: LocalUser | null;
   actions: {
+    closeReviewRound: () => void | Promise<void>;
     copyRoomRecap: () => void | Promise<void>;
     deleteConnection: (connectionId: string) => void | Promise<void>;
     deleteItem: (itemId: string) => void | Promise<void>;
@@ -72,6 +76,7 @@ type RoomInspectorProps = {
     selectItem: (itemId: string) => void;
     setComment: (value: string) => void;
     setDraft: (patch: Partial<InspectorDraft>) => void;
+    startReviewRound: () => void | Promise<void>;
     submitComment: (event: FormEvent<HTMLFormElement>) => void;
     toggleDecisionSignal: (item: RoomItem) => void | Promise<void>;
     updateSelectedStatus: (status: RoomItemStatus) => void | Promise<void>;
@@ -99,6 +104,7 @@ export function RoomInspector({
   items,
   palette,
   recap,
+  roundState,
   selected,
   user,
 }: RoomInspectorProps) {
@@ -200,6 +206,56 @@ export function RoomInspector({
                 );
               })}
             </div>
+          </div>
+
+          <div className="rb-field">
+            <span className="rb-field__label">Review round</span>
+            {roundState === null ? (
+              <button
+                className="rb-btn sm"
+                disabled={!canEditRoom}
+                onClick={() => void actions.startReviewRound()}
+                type="button"
+              >
+                <Gavel size={12} aria-hidden="true" />
+                Start review round
+              </button>
+            ) : (
+              <div className="rb-review-round">
+                <div
+                  aria-label={`Review round phase: ${roundState.phase}`}
+                  className={`rb-status-segmented rb-review-round__phase phase-${roundState.phase}`}
+                  role="group"
+                >
+                  <span
+                    aria-pressed={roundState.phase === "critique"}
+                    className={`selected phase-${roundState.phase === "critique" ? "critique" : ""}`}
+                  >
+                    Critique phase
+                  </span>
+                  <span
+                    aria-pressed={roundState.phase === "vote"}
+                    className={`selected phase-${roundState.phase === "vote" ? "vote" : ""}`}
+                  >
+                    Vote phase
+                  </span>
+                </div>
+                <p className="rb-review-round__waiting">
+                  {roundState.pendingAgentNames.length > 0
+                    ? `Waiting on: ${roundState.pendingAgentNames.join(", ")}`
+                    : "All active agents responded"}
+                </p>
+                <button
+                  className="rb-btn sm"
+                  disabled={!canEditRoom}
+                  onClick={() => void actions.closeReviewRound()}
+                  type="button"
+                >
+                  <X size={12} aria-hidden="true" />
+                  Close round
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="rb-field">

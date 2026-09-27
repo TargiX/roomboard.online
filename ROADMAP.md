@@ -148,6 +148,38 @@ Explore only if the project needs to grow beyond portfolio and first-user value:
 - Invite links with expiration.
 - More expressive canvas tools without becoming a general whiteboard clone.
 
+## Milestone 4: Agent Rooms — decision rooms with BYO agents
+
+Decision (2026-09): Roomboard evolves from human-only launch approval rooms into decision rooms where humans and their own AI agents work together. This direction supersedes Milestones 2–3 as the product path; Milestone 1 remains the reliability base. Positioning: "launch approval rooms where you and your agents make the call."
+
+### Product shape
+
+- Rooms stay private, invite-based, decision-first. The decision record remains the artifact humans sign.
+- Every participant can connect their own agents (Claude Code, Codex, Hermes, any MCP client). Agents join as first-class room participants with bot identity; model keys, tools, and private memory stay on the user's machine. Roomboard stores no provider keys.
+- The card is the unit of agent work: assignment, status transitions, and findings-as-comments. The transcript is coordination; results land on cards so recap and decision record assemble automatically. This is the differentiator vs flat agent chatrooms (agent-room.com, Free4Chat, Human-Agent Chatroom MCP), which have transcripts and task boards but no decision model.
+
+### Locked decisions
+
+- **Connectivity: BYO over MCP.** Stateless Streamable HTTP MCP server at `/api/mcp` (short JSON-RPC POSTs, cursor-based `room_read` polling; no SSE held open on Vercel Functions, per the existing production realtime rule).
+- **Live fanout stays on Phoenix.** Next posts server-originated events to a sidecar internal endpoint (`POST /internal/room-event`, signed with `ROOMBOARD_REALTIME_SECRET`), which broadcasts them into `room:<id>`. The transcript event is `room:message`, shared by human and agent messages and allowlisted in both the channel and the sidecar internal endpoint. Local dev without Phoenix degrades through the existing SSE fallback.
+- **Identity: per-agent tokens** minted by the room owner (`agent:create` / `agent:revoke` room actions, hash stored in the document, token shown once with a ready-to-paste `claude mcp add` snippet). Sender identity is stamped server-side from the token, never from payload — same contract as the channel's `senderId`.
+- **Turn model: hybrid.** MVP is mention-driven with a room-level turn budget (N consecutive agent messages → agents muted until a human speaks). Layer 2 adds per-card review rounds (critique phase → decision-signal phase → checkpoint recompute) orchestrated server-side over the same event contract.
+- **Guardrails:** per-agent distributed rate limits (reuse `roomboard_rate_limit_hit`), message size caps, bounded transcript in the room document (`assertRoomCapacity`, ~240 entries), 64KB mutation limit unchanged.
+- **Arbiter (Slice 3, schema reserved from Slice 1):** three-layer injection defense — (1) deterministic server-side filter before persist (size caps, type allowlist, fake role-marker stripping; impersonation impossible by design); (2) arbiter = BYO observer agent with read-all + `room_flag` tools only, scanning async in throttled batches; flags persist in a `flags` collection and surface in the UI; (3) enforcement (mute/quarantine) is an owner action or an explicit owner-set policy, never arbiter discretion. Trust hierarchy: server checks > human owner > arbiter advice > agent messages. Goal is containment, not cure: humans sign decisions.
+
+### Slices
+
+1. **Slice 1 — tracer bullet (shipped 2026-09-26).** Room document fields (`agents`, `messages`, reserved `flags`); owner agent-token create/revoke; MCP server with `room_read`, `room_send`, `room_comment_item`, `room_decision_signal`, `room_status`; sidecar internal broadcast + `room:message` allowlist; transcript panel with bot badges and soft agent presence (`lastSeenAt`); turn budget and per-agent rate limits; tests (`tests/roomAgent*.test.ts` plus sidecar controller/channel tests); `pnpm verify` green.
+   Acceptance met: a real MCP client flow (JSON-RPC `initialize`/`tools/list`/`tools/call`) joined a local room, read structured state, posted messages that appeared live in an open browser over both the SSE fallback and the Next+Phoenix internal broadcast path, commented a card, backed it with a decision signal, was muted by the turn budget until a human spoke, and was instantly silenced (HTTP 401) by owner revoke.
+2. **Slice 2 — decision integration (shipped 2026-09-26).** Card `assignee` (`agent:<agentId>` or a human user id; inspector picker, PATCH passthrough, `assignee` in `room_read` items, `yourCards` in `room_status`); mention wake semantics (`@name` tokens resolved server-side in `addRoomMessage` when the sender declares none, `wake` list in `room_read`); agent decision signals counted in checkpoints (`agentBackedCount` on the room summary, "· N backed by agents" suffix on checkpoint detail — tone still follows card statuses only); agent-review section in the recap export (`agentReview` on the recap plus a `## Agent review` markdown section with per-agent messages, comments, and backed cards). Verified end-to-end: assignment through UI picker and API, wake round-trip human→agent, checkpoint suffix, recap markdown.
+3. **Slice 3 — arbiter + rounds (shipped 2026-09-26).** Three-layer injection defense: (1) deterministic server-side sanitizer strips control characters and neuters line-leading role markers (`system:`, `assistant:`) before persist; (2) arbiter agents (roster role `isArbiter`) get a read-only MCP toolset plus `room_flag`, flags persist in the reserved `flags` collection and surface as badges in the transcript; (3) enforcement stays with the owner — manual mute/unmute plus an owner-set auto-mute policy (N externally-flagged messages → muted until released). Per-card review rounds: server-orchestrated critique→vote ritual with pure progression logic (`lib/roomRounds.ts`), inspector phase chips + waiting list, MCP `openRounds` with `pendingYou`. Verified end-to-end: arbiter toolset split, flag→auto-mute→unmute cycle, sanitized injection text, round lifecycle critique→vote→closed through both API and inspector UI. Platform-hosted arbiter remains an optional future addition (BYO arbiters cover the flow without storing provider keys).
+
+### Risks
+
+- Cross-agent prompt injection is irreducible in BYO rooms (user A's content is user B's agent input): mitigated by server-stamped attribution, deterministic filtering, arbiter flags, and human-signed decisions — never by trusting agent output.
+- Vercel function limits vs agent polling frequency: keep `room_read` cursor-based and cheap; push delivery to long-lived agents over the sidecar socket is a later optimization.
+- The agent-room landscape is active and partly free/MIT; the moat is the decision product (checkpoints, decision record, recap), not the chat.
+
 ## Release Checklist
 
 Before calling a Roomboard build showcase-ready:
