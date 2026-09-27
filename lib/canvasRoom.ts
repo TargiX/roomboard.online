@@ -14,6 +14,7 @@ import {
   normalizeRoomAgent,
   normalizeRoomMessage,
   normalizeRoomMessageBody,
+  normalizeRoomMessageFlag,
   normalizeRoomMessageMentions,
   parseRoomAgentToken,
   roomAgentTokenHashesMatch,
@@ -22,7 +23,14 @@ import {
   type RoomAgentPublic,
   type RoomMessage,
   type RoomMessageAuthorKind,
+  type RoomMessageFlag,
 } from "./roomAgents.ts";
+import {
+  getActiveRoomAgents,
+  getOpenRoomReviewRound,
+  progressRoomReviewRounds,
+  type RoomReviewRound,
+} from "./roomRounds.ts";
 
 export type RoomItemType = "image" | "note";
 export const roomItemStatuses = ["open", "reviewing", "approved", "changes_requested"] as const;
@@ -193,6 +201,9 @@ export type RoomSnapshot = {
   activities: RoomActivity[];
   agents: RoomAgentPublic[];
   messages: RoomMessage[];
+  flags: RoomMessageFlag[];
+  rounds: RoomReviewRound[];
+  moderation?: { autoMuteFlags?: number };
   history?: RoomHistoryEntry[];
 };
 
@@ -294,6 +305,12 @@ type RoomDocument = {
   agents?: RoomAgent[];
   /** Capped room transcript, oldest first, trimmed from the front. */
   messages?: RoomMessage[];
+  /** Reserved for arbiter flags (Slice 3); persisted empty until then. */
+  flags?: RoomMessageFlag[];
+  /** Per-card review rounds, newest last, capped. */
+  rounds?: RoomReviewRound[];
+  /** Owner-set moderation policy for the arbiter flag flow. */
+  moderation?: { autoMuteFlags?: number };
   /** Optimistic-concurrency token; bumped by every conditional save. */
   version?: number;
 };
@@ -332,8 +349,10 @@ export const roomCapacityLimits = {
   comments: 240,
   connections: 160,
   decisionSignalsPerItem: 50,
+  flags: 80,
   items: 80,
   messages: MAX_ROOM_TRANSCRIPT,
+  rounds: 20,
 } as const;
 
 export type RoomCapacityKind = keyof typeof roomCapacityLimits;
@@ -376,6 +395,28 @@ export class RoomTurnBudgetError extends Error {
 
 export function isRoomTurnBudgetError(error: unknown): error is RoomTurnBudgetError {
   return error instanceof RoomTurnBudgetError || (error instanceof Error && error.name === "RoomTurnBudgetError");
+}
+
+export class RoomAgentMutedError extends Error {
+  constructor(agentName: string) {
+    super(`${agentName} is muted by room moderation; the owner must release it.`);
+    this.name = "RoomAgentMutedError";
+  }
+}
+
+export function isRoomAgentMutedError(error: unknown): error is RoomAgentMutedError {
+  return error instanceof RoomAgentMutedError || (error instanceof Error && error.name === "RoomAgentMutedError");
+}
+
+export class RoomAgentNameError extends Error {
+  constructor(name: string) {
+    super(`Agent name "${name}" is already taken in this room.`);
+    this.name = "RoomAgentNameError";
+  }
+}
+
+export function isRoomAgentNameError(error: unknown): error is RoomAgentNameError {
+  return error instanceof RoomAgentNameError || (error instanceof Error && error.name === "RoomAgentNameError");
 }
 
 type SampleRoomConfig = {
@@ -560,6 +601,24 @@ function normalizeRoomDocument(room: RoomDocument): RoomDocument {
       .map(normalizeRoomMessage)
       .filter((message): message is RoomMessage => Boolean(message))
       .slice(-roomCapacityLimits.messages),
+    flags: (room.flags ?? [])
+      .map(normalizeRoomMessageFlag)
+      .filter((flag): flag is RoomMessageFlag => Boolean(flag))
+      .slice(-roomCapacityLimits.flags),
+    rounds: (room.rounds ?? [])
+      .filter((round) => round && typeof round.id === "string" && typeof round.itemId === "string")
+      .map((round) => ({
+        id: round.id.slice(0, 96),
+        itemId: round.itemId.slice(0, 96),
+        phase: round.phase === "critique" || round.phase === "vote" ? round.phase : ("closed" as const),
+        startedAt: typeof round.startedAt === "number" && Number.isFinite(round.startedAt) ? round.startedAt : 0,
+        ...(typeof round.closedAt === "number" && Number.isFinite(round.closedAt) ? { closedAt: round.closedAt } : {}),
+      }))
+      .slice(-roomCapacityLimits.rounds),
+    moderation:
+      room.moderation && typeof room.moderation.autoMuteFlags === "number" && room.moderation.autoMuteFlags >= 1
+        ? { autoMuteFlags: Math.min(Math.round(room.moderation.autoMuteFlags), 20) }
+        : undefined,
   };
 }
 
@@ -2095,6 +2154,9 @@ export async function getRoomSnapshot(
     activities: (room.activities ?? []).slice(0, 50),
     agents: (room.agents ?? []).map(toPublicRoomAgent),
     messages: (room.messages ?? []).slice(-80),
+    flags: room.flags ?? [],
+    rounds: room.rounds ?? [],
+    moderation: room.moderation,
     history: room.history ?? [],
   };
 }
@@ -2116,6 +2178,9 @@ export async function getPublicRoomSnapshot(roomId = DEFAULT_ROOM_ID): Promise<R
     activities: (room.activities ?? []).slice(0, 50),
     agents: (room.agents ?? []).map(toPublicRoomAgent),
     messages: (room.messages ?? []).slice(-80),
+    flags: room.flags ?? [],
+    rounds: room.rounds ?? [],
+    moderation: room.moderation,
   };
 }
 
@@ -2548,6 +2613,7 @@ export async function addRoomComment(
       message: `Commented on "${item.title}".`,
       type: "comment_created",
     });
+    room.rounds = progressRoomReviewRounds(room.rounds ?? [], room.items, room.agents ?? []);
     return comment;
   });
 }
@@ -2581,6 +2647,7 @@ export async function toggleRoomItemDecisionSignal(
       message: existingIndex >= 0 ? `Removed support for "${item.title}".` : `Backed "${item.title}" for the decision.`,
       type: "decision_signal_updated",
     });
+    room.rounds = progressRoomReviewRounds(room.rounds ?? [], room.items, room.agents ?? []);
     return item;
   });
 }
@@ -2590,14 +2657,25 @@ export async function toggleRoomItemDecisionSignal(
  * tokens; only the sha256 hash is persisted. Identity is always derived from
  * the verified token, never from request payloads. */
 
-export async function createRoomAgent(roomId: string, name: string, credentialsInput?: RoomCredentialsInput) {
+export async function createRoomAgent(
+  roomId: string,
+  name: string,
+  credentialsInput?: RoomCredentialsInput,
+  options: { isArbiter?: boolean } = {},
+) {
   const room = await getExistingRoom(roomId);
 
   if (!room || getRoomRole(room, credentialsInput) !== "owner") {
     return null;
   }
 
+  // Unique display names keep comment-author attribution (and therefore
+  // review-round critique tracking) unambiguous.
   const trimmedName = name.trim().slice(0, 24);
+
+  if ((room.agents ?? []).some((candidate) => candidate.name.toLowerCase() === trimmedName.toLowerCase())) {
+    throw new RoomAgentNameError(trimmedName);
+  }
 
   const token = createRoomAgentToken(roomId);
   const agent = await mutateRoom(roomId, (doc) => {
@@ -2609,6 +2687,7 @@ export async function createRoomAgent(roomId: string, name: string, credentialsI
       color: getRoomAgentColor(agents.length),
       tokenHash: hashRoomAgentToken(token),
       createdAt: Date.now(),
+      ...(options.isArbiter === true ? { isArbiter: true } : {}),
     };
     doc.agents = [...agents, created];
     return created;
@@ -2712,6 +2791,15 @@ export async function addRoomMessage(
   return mutateRoom(roomId, (room) => {
     const messages = room.messages ?? [];
 
+    const authorAgent =
+      input.authorKind === "agent" && input.authorId.startsWith("agent:")
+        ? (room.agents ?? []).find((candidate) => `agent:${candidate.id}` === input.authorId)
+        : undefined;
+
+    if (authorAgent?.muted) {
+      throw new RoomAgentMutedError(authorAgent.name);
+    }
+
     // Turn budget: after AGENT_TURN_BUDGET consecutive agent messages the
     // room is muted for agents until a human speaks again.
     if (input.authorKind === "agent" && getAgentTurnBudgetState(messages).exhausted) {
@@ -2772,7 +2860,154 @@ export async function readRoomMessages(roomId: string, options: { cursor?: strin
     reset,
     roomName: room.name,
     turnBudget: getAgentTurnBudgetState(messages),
+    rounds: room.rounds ?? [],
   };
+}
+
+export async function addRoomMessageFlag(
+  input: { messageId: string; flaggerId: string; reason?: string },
+  roomId = DEFAULT_ROOM_ID,
+) {
+  return mutateRoom(roomId, (room) => {
+    const message = (room.messages ?? []).find((candidate) => candidate.id === input.messageId);
+
+    if (!message) {
+      return null;
+    }
+
+    const flags = room.flags ?? [];
+    assertRoomCapacity("flags", flags.length);
+    const flag: RoomMessageFlag = {
+      id: crypto.randomUUID(),
+      messageId: message.id,
+      flaggerId: input.flaggerId.trim().slice(0, 96) || "unknown",
+      reason: input.reason?.trim().slice(0, 320) || "Flagged for review",
+      createdAt: Date.now(),
+    };
+    room.flags = [...flags, flag];
+
+    // Owner-set policy: once enough distinct messages by one agent carry
+    // flags from others, that agent is muted until the owner releases it.
+    // The arbiter advises through flags; only the policy (or the owner)
+    // enforces.
+    const threshold = room.moderation?.autoMuteFlags;
+
+    if (threshold && message.authorKind === "agent" && message.authorId.startsWith("agent:")) {
+      const externallyFlaggedMessageIds = new Set(
+        (room.flags ?? [])
+          .filter((candidate) => candidate.flaggerId !== message.authorId)
+          .map((candidate) => candidate.messageId),
+      );
+      const flaggedCount = (room.messages ?? []).filter(
+        (candidate) => candidate.authorId === message.authorId && externallyFlaggedMessageIds.has(candidate.id),
+      ).length;
+      const agent = (room.agents ?? []).find((candidate) => `agent:${candidate.id}` === message.authorId);
+
+      if (agent && flaggedCount >= threshold) {
+        agent.muted = true;
+      }
+    }
+
+    return flag;
+  });
+}
+
+export async function setRoomAgentMuted(
+  roomId: string,
+  agentId: string,
+  muted: boolean,
+  credentialsInput?: RoomCredentialsInput,
+) {
+  const room = await getExistingRoom(roomId);
+
+  if (!room || getRoomRole(room, credentialsInput) !== "owner") {
+    return false;
+  }
+
+  return mutateRoom(roomId, (doc) => {
+    const agent = (doc.agents ?? []).find((candidate) => candidate.id === agentId);
+
+    if (!agent) {
+      return false;
+    }
+
+    if (muted) {
+      agent.muted = true;
+    } else {
+      delete agent.muted;
+    }
+
+    return true;
+  });
+}
+
+export async function setRoomModerationPolicy(
+  roomId: string,
+  autoMuteFlags: number | null,
+  credentialsInput?: RoomCredentialsInput,
+) {
+  const room = await getExistingRoom(roomId);
+
+  if (!room || getRoomRole(room, credentialsInput) !== "owner") {
+    return false;
+  }
+
+  return mutateRoom(roomId, (doc) => {
+    doc.moderation =
+      autoMuteFlags && autoMuteFlags > 0 ? { autoMuteFlags: Math.min(Math.round(autoMuteFlags), 20) } : undefined;
+    return true;
+  });
+}
+
+export async function startRoomReviewRound(roomId: string, itemId: string, credentialsInput?: RoomCredentialsInput) {
+  const room = await getExistingRoom(roomId);
+  const role = room ? getRoomRole(room, credentialsInput) : null;
+
+  if (!room || !role || role === "viewer") {
+    return null;
+  }
+
+  return mutateRoom(roomId, (doc) => {
+    if (getOpenRoomReviewRound(doc.rounds ?? [], itemId)) {
+      return null;
+    }
+
+    const item = doc.items.find((candidate) => candidate.id === itemId);
+
+    if (!item || getActiveRoomAgents(doc.agents ?? []).length === 0) {
+      return null;
+    }
+
+    const round: RoomReviewRound = {
+      id: crypto.randomUUID(),
+      itemId,
+      phase: "critique",
+      startedAt: Date.now(),
+    };
+    doc.rounds = [...(doc.rounds ?? []), round].slice(-roomCapacityLimits.rounds);
+    return round;
+  });
+}
+
+export async function closeRoomReviewRound(roomId: string, itemId: string, credentialsInput?: RoomCredentialsInput) {
+  const room = await getExistingRoom(roomId);
+  const role = room ? getRoomRole(room, credentialsInput) : null;
+
+  if (!room || !role || role === "viewer") {
+    return false;
+  }
+
+  return mutateRoom(roomId, (doc) => {
+    const round = getOpenRoomReviewRound(doc.rounds ?? [], itemId);
+
+    if (!round) {
+      return false;
+    }
+
+    round.phase = "closed";
+    round.closedAt = Date.now();
+    return true;
+  });
 }
 
 export async function createRoomConnection(
