@@ -273,4 +273,60 @@ defmodule RoomboardRealtimeWeb.RoomChannelTest do
 
     assert_reply ref, :error, %{reason: "payload_too_large"}
   end
+
+  test "broadcasts room:message events with a message map and stamped metadata",
+       %{room_id: room_id, socket: socket} do
+    {:ok, _reply, socket} = subscribe_and_join(socket, "room:#{room_id}", %{})
+    assert_push "presence_state", _
+
+    ref =
+      push(socket, "room:event", %{
+        "type" => "room:message",
+        "message" => %{
+          "id" => "msg-1",
+          "authorId" => "user-1",
+          "authorName" => "Ada",
+          "body" => "hello"
+        }
+      })
+
+    assert_reply ref, :ok, %{
+      "type" => "room:message",
+      "roomId" => ^room_id,
+      "senderId" => "user-1",
+      "sentAt" => sent_at
+    }
+
+    assert is_integer(sent_at)
+
+    assert_broadcast "room:event", %{
+      "type" => "room:message",
+      "message" => %{"id" => "msg-1", "body" => "hello"},
+      "roomId" => ^room_id,
+      "senderId" => "user-1",
+      "sentAt" => ^sent_at
+    }
+  end
+
+  test "still rejects room:message events from viewer-role sockets",
+       %{room_id: room_id, socket: socket} do
+    secret = "test-roomboard-realtime-secret"
+
+    with_realtime_secret(secret, fn ->
+      token = signed_access_token(room_id, secret, role: "viewer")
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, "room:#{room_id}", %{"accessToken" => token})
+
+      assert_push "presence_state", _
+
+      ref =
+        push(socket, "room:event", %{
+          "type" => "room:message",
+          "message" => %{"body" => "viewer cannot post"}
+        })
+
+      assert_reply ref, :error, %{reason: "viewer_read_only"}
+    end)
+  end
 end

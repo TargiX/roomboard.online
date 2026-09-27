@@ -1,8 +1,10 @@
 "use client";
 
-import { Archive, LockKeyhole, Trash2 } from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { Archive, Bot, Copy, LockKeyhole, Trash2 } from "lucide-react";
 import type { RoomPermissions } from "@/lib/canvasRoom";
 import type { LocalUser, ProductAnalyticsProperties } from "@/components/room/roomTypes";
+import type { RoomAgentPublic } from "@/lib/roomAgents";
 
 type ProfileJoinCopy = {
   action: string;
@@ -266,6 +268,187 @@ export function RoomProfileModal({
             type="button"
           >
             {requiresProfile ? profileJoinCopy.action : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export type RoomAgentsModalProps = {
+  agents: RoomAgentPublic[];
+  onCreate: (name: string) => Promise<{ agent: RoomAgentPublic; token: string } | null>;
+  onRevoke: (agentId: string) => Promise<boolean>;
+  show: boolean;
+  setShow: (open: boolean) => void;
+};
+
+const codeBlockStyle: CSSProperties = {
+  background: "var(--bg-elevated)",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  fontSize: 11.5,
+  padding: "8px 10px",
+  wordBreak: "break-all",
+};
+
+/**
+ * Owner-only agent management: mints per-agent MCP tokens (shown exactly
+ * once) and lists the roster with soft presence.
+ */
+export function RoomAgentsModal({
+  agents,
+  onCreate,
+  onRevoke,
+  show,
+  setShow,
+}: RoomAgentsModalProps) {
+  const [copied, setCopied] = useState(false);
+  const [created, setCreated] = useState<{ agent: RoomAgentPublic; token: string } | null>(null);
+  const [error, setError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [revokingId, setRevokingId] = useState("");
+
+  if (!show) return null;
+
+  const mcpUrl = typeof window === "undefined" ? "/api/mcp" : `${window.location.origin}/api/mcp`;
+  const snippet = created
+    ? `claude mcp add --transport http roomboard ${mcpUrl} --header "Authorization: Bearer ${created.token}"`
+    : "";
+
+  const close = () => {
+    setShow(false);
+    setCopied(false);
+    setCreated(null);
+    setError("");
+    setName("");
+  };
+
+  const create = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || isCreating) return;
+    setIsCreating(true);
+    setError("");
+    const result = await onCreate(trimmed);
+    setIsCreating(false);
+
+    if (result) {
+      setCreated(result);
+      setName("");
+    } else {
+      setError("Could not connect the agent. Only the room owner can create agent tokens.");
+    }
+  };
+
+  const copySnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const revoke = async (agentId: string) => {
+    setRevokingId(agentId);
+    await onRevoke(agentId);
+    setRevokingId("");
+  };
+
+  return (
+    <div className="rb-modal-scrim" onClick={close}>
+      <div className="rb-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="rb-modal__head">
+          <div className="rb-modal__eyebrow">Agents</div>
+          <div className="rb-modal__title">Connect an agent</div>
+          <div className="rb-modal__sub">
+            Your own agent joins this room over MCP with a room-scoped token. Model keys, tools, and memory stay on the
+            agent&apos;s machine; the room stores only a token hash.
+          </div>
+        </div>
+        <div className="rb-modal__body">
+          {created ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <p className="rb-empty-copy">
+                Token for <strong>{created.agent.name}</strong> — shown once, store it now:
+              </p>
+              <code style={codeBlockStyle}>{created.token}</code>
+              <p className="rb-empty-copy">Claude Code connect command:</p>
+              <code style={codeBlockStyle}>{snippet}</code>
+              <button className="rb-btn ghost sm" onClick={() => void copySnippet()} type="button">
+                <Copy size={13} aria-hidden="true" />
+                {copied ? "Copied" : "Copy command"}
+              </button>
+              <button className="rb-btn primary" onClick={() => setCreated(null)} type="button">
+                Connect another agent
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  aria-label="Agent name"
+                  className="rb-input"
+                  maxLength={24}
+                  onChange={(event) => setName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void create();
+                  }}
+                  placeholder="Agent name (e.g. Hermes)"
+                  value={name}
+                />
+                <button
+                  className="rb-btn primary"
+                  disabled={isCreating || !name.trim()}
+                  onClick={() => void create()}
+                  type="button"
+                >
+                  <Bot size={13} aria-hidden="true" />
+                  {isCreating ? "Connecting" : "Create token"}
+                </button>
+              </div>
+              {error ? (
+                <p className="rb-empty-copy" style={{ color: "var(--danger, #f43f5e)" }}>
+                  {error}
+                </p>
+              ) : null}
+              {agents.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {agents.map((agent) => (
+                    <div
+                      key={agent.id}
+                      style={{ alignItems: "center", display: "flex", gap: 8, justifyContent: "space-between" }}
+                    >
+                      <span style={{ alignItems: "center", display: "inline-flex", gap: 8, minWidth: 0 }}>
+                        <span className="presence-dot" style={{ background: agent.color }} />
+                        <span style={{ fontSize: 12.5 }}>{agent.name}</span>
+                        <span style={{ color: "var(--text-3)", fontSize: 11 }}>
+                          {agent.lastSeenAt ? `seen ${new Date(agent.lastSeenAt).toLocaleString()}` : "never connected"}
+                        </span>
+                      </span>
+                      <span style={{ display: "inline-flex", gap: 6 }}>
+                        <button
+                          className="rb-btn ghost sm"
+                          disabled={revokingId === agent.id || isCreating}
+                          onClick={() => void revoke(agent.id)}
+                          type="button"
+                        >
+                          {revokingId === agent.id ? "Revoking" : "Revoke"}
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rb-empty-copy">No agents connected yet.</p>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="rb-modal__foot">
+          <button className="rb-btn ghost" onClick={close} type="button">
+            Close
           </button>
         </div>
       </div>

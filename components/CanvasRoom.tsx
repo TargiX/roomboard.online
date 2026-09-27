@@ -61,13 +61,14 @@ import { dismissRoomLaunchGuide, isRoomLaunchGuideDismissed } from "@/lib/launch
 import { getLifecycleCopy, getProfileJoinCopy } from "@/lib/lifecycleCopy";
 import { trackProductEvent } from "@/lib/productAnalytics";
 import type { PresenceSnapshot } from "@/lib/presence";
-import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
 import {
-  createLocalId,
-  getInviteToken,
-  getOwnerToken,
-  persistAuthorizedInviteToken,
-} from "@/lib/roomTokens";
+  getAgentTurnBudgetState,
+  mergeRoomMessages,
+  type RoomAgentPublic,
+  type RoomMessage,
+} from "@/lib/roomAgents";
+import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
+import { createLocalId, getInviteToken, getOwnerToken, persistAuthorizedInviteToken } from "@/lib/roomTokens";
 import { getRoomboardPanelState } from "@/lib/roomboardPanelState";
 import {
   createRoomboardRealtimeSession,
@@ -80,7 +81,8 @@ import { buildRoomboardSupportMailto } from "@/lib/support";
 import { RoomInspector } from "@/components/room/RoomInspector";
 import { RoomToolbar } from "@/components/room/RoomToolbar";
 import { RoomHeader } from "@/components/room/RoomHeader";
-import { RoomCloseModal, RoomLockModal, RoomProfileModal } from "@/components/room/RoomModals";
+import { RoomAgentsModal, RoomCloseModal, RoomLockModal, RoomProfileModal } from "@/components/room/RoomModals";
+import { RoomTranscriptPanel } from "@/components/room/RoomTranscriptPanel";
 import { RoomboardLoader } from "@/components/RoomboardLoader";
 
 import { usePixiScene } from "@/components/room/usePixiScene";
@@ -813,7 +815,6 @@ function getInitials(name: string) {
   return trimmed ? trimmed.slice(0, 2).toUpperCase() : "ME";
 }
 
-
 function isSamePosition(item: RoomItem, move: LocalMove) {
   return Math.round(item.x) === Math.round(move.x) && Math.round(item.y) === Math.round(move.y);
 }
@@ -913,6 +914,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const [connections, setConnections] = useState<RoomConnection[]>([]);
   const [activities, setActivities] = useState<RoomActivity[]>([]);
   const [roomHistory, setRoomHistory] = useState<RoomHistoryEntry[]>([]);
+  const [roomMessages, setRoomMessages] = useState<RoomMessage[]>([]);
+  const [roomAgents, setRoomAgents] = useState<RoomAgentPublic[]>([]);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [showAgentsModal, setShowAgentsModal] = useState(false);
   const [displayRoomName, setDisplayRoomName] = useState(roomName);
   const [roomAccess, setRoomAccessState] = useState<RoomAccess>("link");
   const [roomVisibility, setRoomVisibilityState] = useState<RoomVisibility>("private");
@@ -1035,6 +1040,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const roomApi = `/api/rooms/${roomId}`;
+  const turnBudget = useMemo(() => getAgentTurnBudgetState(roomMessages), [roomMessages]);
   const roomQueryParams = new URLSearchParams();
   if (ownerToken) roomQueryParams.set("ownerToken", ownerToken);
   if (inviteToken) roomQueryParams.set("inviteToken", inviteToken);
@@ -1285,6 +1291,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       setItems(nextItems);
       setConnections(snapshot.connections || []);
       setActivities(snapshot.activities || []);
+      // Merge instead of replace: a live agent message that landed after this
+      // snapshot fetch started must not be rolled back by the stale page.
+      setRoomMessages((current) => mergeRoomMessages(current, snapshot.messages ?? []));
+      setRoomAgents(snapshot.agents ?? []);
       setRoomHistory(snapshot.history ?? []);
       hasRoomSnapshotRef.current = true;
       setHasRoomSnapshot(true);
@@ -1357,6 +1367,11 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         return;
       }
 
+      if (event.type === "room:message") {
+        setRoomMessages((current) => mergeRoomMessages(current, [event.message]));
+        return;
+      }
+
       if (event.type === "connection:created") {
         setConnections((current) => upsertUniqueConnection(current, event.connection));
         return;
@@ -1398,6 +1413,93 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       });
     },
     [canEditRoom, realtimeStatus, user],
+  );
+
+  const sendTranscriptMessage = useCallback(
+    async (body: string) => {
+      if (!body.trim()) {
+        return false;
+      }
+
+      const response = await fetch(roomApi, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(inviteToken ? { "X-Room-Invite-Token": inviteToken } : {}),
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({
+          action: "message",
+          author: user?.name ?? "Editor",
+          authorId: user?.id ?? "editor",
+          body,
+        }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = (await response.json()) as { message?: RoomMessage };
+
+      if (!data.message) {
+        return false;
+      }
+
+      setRoomMessages((current) => mergeRoomMessages(current, [data.message!]));
+      publishBoardEvent({ type: "room:message", message: data.message });
+      return true;
+    },
+    [inviteToken, ownerToken, publishBoardEvent, roomApi, user],
+  );
+
+  const createRoomAgentAction = useCallback(
+    async (name: string) => {
+      const response = await fetch(roomApi, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({ action: "agent-create", name }),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = (await response.json()) as { agent?: RoomAgentPublic; token?: string };
+
+      if (!data.agent || !data.token) {
+        return null;
+      }
+
+      const created = data.agent;
+      setRoomAgents((current) => [...current.filter((agent) => agent.id !== created.id), created]);
+      return { agent: created, token: data.token };
+    },
+    [ownerToken, roomApi],
+  );
+
+  const revokeRoomAgentAction = useCallback(
+    async (agentId: string) => {
+      const response = await fetch(roomApi, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          ...(ownerToken ? { "X-Room-Owner-Token": ownerToken } : {}),
+        },
+        body: JSON.stringify({ action: "agent-revoke", agentId }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      setRoomAgents((current) => current.filter((agent) => agent.id !== agentId));
+      return true;
+    },
+    [ownerToken, roomApi],
   );
 
   const requestProfile = () => {
@@ -1688,7 +1790,6 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     useRealtimeFallback,
     user,
   ]);
-
 
   usePixiScene({
     hostRef,
@@ -2210,7 +2311,6 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     userRef,
   });
 
-
   const copyRoomRecap = async () => {
     const recap = roomRecap ?? (await loadRoomRecap());
 
@@ -2609,6 +2709,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         setRequiresProfile={setRequiresProfile}
         setShowProfileModal={setShowProfileModal}
         setShowCloseModal={setShowCloseModal}
+        setShowAgentsModal={setShowAgentsModal}
         router={router}
         canManageRoom={canManageRoom}
         canEditRoom={canEditRoom}
@@ -2961,11 +3062,13 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
             setConnectFromId(null);
           },
           setImageUrl: setToolbarImageUrl,
+          toggleTranscript: () => setShowTranscript((open) => !open),
         }}
         canEditRoom={canEditRoom}
         fileInputRef={fileInputRef}
         imageUrl={toolbarImageUrl}
         isConnecting={isConnecting}
+        showTranscript={showTranscript}
       />
 
       <RoomInspector
@@ -3016,6 +3119,18 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         }}
         selected={selected}
         user={user}
+      />
+
+      <RoomTranscriptPanel
+        agents={roomAgents}
+        canEdit={canEditRoom}
+        currentUserId={user?.id}
+        isRoomClosed={roomClosed}
+        messages={roomMessages}
+        onClose={() => setShowTranscript(false)}
+        onSend={sendTranscriptMessage}
+        show={showTranscript}
+        turnBudget={turnBudget}
       />
 
       <div className="rb-canvas-meta">
@@ -3094,6 +3209,14 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         isTogglingAccess={isTogglingAccess}
         setShow={setShowLockModal}
         toggleRoomAccess={toggleRoomAccess}
+      />
+
+      <RoomAgentsModal
+        agents={roomAgents}
+        onCreate={createRoomAgentAction}
+        onRevoke={revokeRoomAgentAction}
+        setShow={setShowAgentsModal}
+        show={showAgentsModal}
       />
 
       <RoomProfileModal

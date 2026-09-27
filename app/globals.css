@@ -2660,6 +2660,135 @@ textarea {
   -webkit-backdrop-filter: blur(14px);
 }
 
+/* Agent rooms transcript: sits left of the always-present inspector so both
+   panels stay open at once without overlap. */
+.rb-transcript {
+  right: 320px;
+}
+
+.rb-transcript__presence {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 0 8px;
+  min-width: 0;
+}
+
+.rb-transcript__presence-empty {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.rb-transcript__agent {
+  align-items: center;
+  color: var(--text-2);
+  display: inline-flex;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.rb-transcript__agent.dim {
+  opacity: 0.45;
+}
+
+.rb-transcript__agent-name {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-transcript__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.rb-transcript__banner {
+  left: auto;
+  margin: 0;
+  max-width: none;
+  position: static;
+  top: auto;
+  transform: none;
+}
+
+.rb-transcript__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.rb-transcript__badge {
+  align-items: center;
+  display: inline-flex;
+  font-size: 10px;
+  gap: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rb-transcript__time {
+  color: var(--text-3);
+  font-size: 10.5px;
+  margin-left: auto;
+}
+
+.rb-transcript__body-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rb-transcript__mention {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.rb-transcript__compose {
+  align-items: flex-end;
+}
+
+.rb-transcript__textarea {
+  background: transparent;
+  border: none;
+  color: var(--text-1);
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  resize: none;
+}
+
+.rb-transcript__textarea::placeholder {
+  color: var(--text-3);
+}
+
+.rb-transcript__compose-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.rb-transcript__remaining {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.rb-transcript__remaining.is-zero {
+  color: var(--danger, #f43f5e);
+}
+
+.rb-transcript__closed-note {
+  font-style: italic;
+}
+
 .rb-inspector::before {
   content: none;
 }

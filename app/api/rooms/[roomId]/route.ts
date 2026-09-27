@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   addRoomComment,
+  addRoomMessage,
   beginRoomPermanentDeletion,
   canPermanentlyDeleteRoom,
   toggleRoomItemDecisionSignal,
   canAccessRoom,
   canEditRoom,
   closeRoom,
+  createRoomAgent,
   createRoomConnection,
   createRoomItem,
   createRoomStream,
@@ -16,9 +18,12 @@ import {
   duplicateRoomItem,
   getRoomSummary,
   getRoomSnapshot,
+  isRoomCapacityError,
   isRoomItemStyleVariant,
   isRoomOwner,
+  isRoomTurnBudgetError,
   reverseRoomConnection,
+  revokeRoomAgent,
   roomItemStatuses,
   setRoomAccess,
   setRoomInviteExpiry,
@@ -151,6 +156,7 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
       | "comment"
       | "decision-signal"
       | "item"
+      | "message"
       | "connection"
       | "reverse-connection"
       | "delete-connection"
@@ -162,6 +168,8 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
     body?: string;
     imageUrl?: string;
     author?: string;
+    authorId?: string;
+    mentions?: string[];
     voterId?: string;
     color?: string;
     status?: RoomItemStatus;
@@ -203,6 +211,29 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
     }
 
     return NextResponse.json({ comment });
+  }
+
+  if (payload.action === "message") {
+    if (!payload.body || payload.body.trim().length < 1) {
+      return NextResponse.json({ error: "Message body is required." }, { status: 400 });
+    }
+
+    const message = await addRoomMessage(
+      {
+        authorId: payload.authorId ?? "editor",
+        authorName: payload.author ?? "Editor",
+        authorKind: "human",
+        body: payload.body,
+        mentions: payload.mentions,
+      },
+      roomId,
+    );
+
+    if (!message) {
+      return NextResponse.json({ error: "Message body is required." }, { status: 400 });
+    }
+
+    return NextResponse.json({ message });
   }
 
   if (payload.action === "decision-signal") {
@@ -325,7 +356,13 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
   }
 
   const body = await readJsonBody<{
-    action?: "access" | "invite-expiry" | "snapshot" | "visibility";
+    action?:
+      | "access"
+      | "agent-create"
+      | "agent-revoke"
+      | "invite-expiry"
+      | "snapshot"
+      | "visibility";
     access?: RoomAccess;
     isSnapshotPublic?: unknown;
     visibility?: RoomVisibility;
@@ -342,6 +379,8 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     status?: RoomItemStatus;
     styleVariant?: unknown;
     author?: string;
+    agentId?: string;
+    name?: string;
   }>(request);
 
   if (!body.ok) {
@@ -413,6 +452,50 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     if (limited) return limited;
 
     return NextResponse.json({ room: await setRoomInviteExpiry(roomId, payload.inviteExpiresAt ?? null, credentials) });
+  }
+
+  if (payload.action === "agent-create") {
+    if (!payload.name?.trim()) {
+      return NextResponse.json({ error: "Agent name is required." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can connect agents." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    try {
+      const created = await createRoomAgent(roomId, payload.name, credentials);
+
+      if (!created) {
+        return NextResponse.json({ error: "Agent could not be created." }, { status: 400 });
+      }
+
+      return NextResponse.json(created);
+    } catch (error) {
+      if (isRoomCapacityError(error)) {
+        return NextResponse.json({ error: "Agent roster is full. Revoke an agent first." }, { status: 409 });
+      }
+
+      throw error;
+    }
+  }
+
+  if (payload.action === "agent-revoke") {
+    if (!payload.agentId?.trim()) {
+      return NextResponse.json({ error: "agentId is required." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can revoke agents." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    return NextResponse.json({ ok: await revokeRoomAgent(roomId, payload.agentId, credentials) });
   }
 
   if (!(await canEditRoom(roomId, credentials))) {
