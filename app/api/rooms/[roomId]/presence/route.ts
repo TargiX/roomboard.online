@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { canAccessRoom, type RoomCredentials } from "@/lib/canvasRoom";
 import { createPresenceStream, publishPresence, removePresence, type PresenceSnapshot } from "@/lib/presence";
 import { readJsonBody } from "@/lib/requestJson";
-import { checkRateLimitDistributed, getRequestClientKey } from "@/lib/requestRateLimit";
+import { checkRateLimitDistributed, getRequestClientKey, rateLimitModeHeader } from "@/lib/requestRateLimit";
 import {
   isServerRealtimeFallbackAllowed,
   serverRealtimeFallbackDisabledBody,
@@ -82,7 +82,10 @@ export async function POST(request: Request, { params }: PresenceRouteProps) {
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many presence updates. Try again later." },
-      { headers: { "Retry-After": String(rateLimit.retryAfter) }, status: 429 },
+      {
+        headers: { "Retry-After": String(rateLimit.retryAfter), ...rateLimitModeHeader(rateLimit) },
+        status: 429,
+      },
     );
   }
 

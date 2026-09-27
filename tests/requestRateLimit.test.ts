@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { checkRateLimit, getRequestClientKey } from "../lib/requestRateLimit.ts";
+import {
+  checkRateLimit,
+  checkRateLimitDistributed,
+  rateLimitModeHeader,
+  getRequestClientKey,
+} from "../lib/requestRateLimit.ts";
 
 const originalDateNow = Date.now;
 
@@ -17,9 +22,13 @@ describe("request rate limiting", () => {
     const key = `test:${crypto.randomUUID()}`;
     setNow(1_000);
 
-    assert.deepEqual(checkRateLimit(key, 2, 10_000), { allowed: true, retryAfter: 0 });
-    assert.deepEqual(checkRateLimit(key, 2, 10_000), { allowed: true, retryAfter: 0 });
-    assert.deepEqual(checkRateLimit(key, 2, 10_000), { allowed: false, retryAfter: 10 });
+    assert.deepEqual(checkRateLimit(key, 2, 10_000), { allowed: true, retryAfter: 0, mode: "memory" });
+    assert.deepEqual(checkRateLimit(key, 2, 10_000), { allowed: true, retryAfter: 0, mode: "memory" });
+    assert.deepEqual(checkRateLimit(key, 2, 10_000), {
+      allowed: false,
+      retryAfter: 10,
+      mode: "memory",
+    });
   });
 
   it("opens a new bucket after the window resets", () => {
@@ -30,7 +39,7 @@ describe("request rate limiting", () => {
     assert.equal(checkRateLimit(key, 1, 1_000).allowed, false);
 
     setNow(6_001);
-    assert.deepEqual(checkRateLimit(key, 1, 1_000), { allowed: true, retryAfter: 0 });
+    assert.deepEqual(checkRateLimit(key, 1, 1_000), { allowed: true, retryAfter: 0, mode: "memory" });
   });
 
   it("uses forwarded IP headers before falling back to local", () => {
@@ -45,5 +54,62 @@ describe("request rate limiting", () => {
       "198.51.100.2",
     );
     assert.equal(getRequestClientKey(new Request("https://roomboard.test")), "local");
+  });
+
+  it("tags memory limiter decisions and exposes them as a mode header", () => {
+    const key = `test:${crypto.randomUUID()}`;
+    setNow(2_000);
+
+    assert.deepEqual(checkRateLimit(key, 1, 1_000), {
+      allowed: true,
+      retryAfter: 0,
+      mode: "memory",
+    });
+    assert.deepEqual(rateLimitModeHeader({ allowed: false, retryAfter: 3, mode: "memory" }), {
+      "Roomboard-Rate-Limit-Mode": "memory",
+    });
+  });
+
+  it("distributed limiter falls back to memory mode when Supabase is not configured", async () => {
+    // Test env has no SUPABASE_URL/SERVICE_ROLE_KEY, so the distributed
+    // limiter must take the documented fail-open path and still report
+    // which limiter made the decision.
+    const key = `test:${crypto.randomUUID()}`;
+    setNow(3_000);
+
+    const result = await checkRateLimitDistributed(key, 1, 1_000);
+
+    assert.deepEqual(result, { allowed: true, retryAfter: 0, mode: "memory" });
+
+    setNow(3_100);
+    const blocked = await checkRateLimitDistributed(key, 1, 1_000);
+    assert.deepEqual(blocked, { allowed: false, retryAfter: 1, mode: "memory" });
+  });
+
+  it("distributed limiter reports distributed mode when the RPC answers", async () => {
+    const key = `test:${crypto.randomUUID()}`;
+    setNow(4_000);
+
+    const { getSupabaseAdminClient } = await import("../lib/supabaseAdmin.ts");
+    const realClient = getSupabaseAdminClient();
+    const fakeClient = {
+      rpc: async () => ({ data: [{ count: 5, reset_at: null }], error: null }),
+    } as unknown as NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+
+    const adminGlobal = globalThis as unknown as {
+      roomboardAdminClient?: typeof realClient;
+    };
+    const original = adminGlobal.roomboardAdminClient;
+    adminGlobal.roomboardAdminClient = fakeClient;
+
+    try {
+      assert.deepEqual(await checkRateLimitDistributed(key, 4, 60_000), {
+        allowed: false,
+        retryAfter: 60,
+        mode: "distributed",
+      });
+    } finally {
+      adminGlobal.roomboardAdminClient = original;
+    }
   });
 });
