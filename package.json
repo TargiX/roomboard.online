@@ -16,6 +16,7 @@
     "release:local": "pnpm verify && pnpm readiness:local && git diff --check",
     "release:prod:check": "READINESS_EXPECTED_GIT_SHA=$(git rev-parse HEAD) pnpm readiness:prod && pnpm realtime:prod && SMOKE_BASE_URL=https://www.roomboard.online pnpm smoke",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:agents": "node scripts/smoke-agents.mjs",
     "smoke:realtime": "node scripts/realtime-smoke.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",

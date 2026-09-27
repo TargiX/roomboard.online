@@ -25,9 +25,16 @@ async function completeJoinIfNeeded(page, name) {
 }
 
 async function waitForRoomReady(page, name) {
+  // The profile join modal gates the canvas behind the loader, so waiting for
+  // the canvas before joining deadlocks on a fresh browser profile. Handle
+  // the join first, whichever surface appears.
+  await Promise.race([
+    page.waitForSelector("#profile-name", { timeout: 15000 }),
+    page.waitForSelector("canvas", { timeout: 15000 }),
+  ]);
+  await completeJoinIfNeeded(page, name);
   await page.waitForSelector("canvas", { timeout: 15000 });
   await page.locator(".rb-loader").waitFor({ state: "detached", timeout: 15000 });
-  await completeJoinIfNeeded(page, name);
 }
 
 try {
