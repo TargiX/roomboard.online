@@ -16,16 +16,19 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
-import { Bot, MessageSquare, Send, X } from "lucide-react";
-import { MAX_ROOM_MESSAGE_BODY, type RoomAgentPublic, type RoomMessage } from "@/lib/roomAgents";
+import { AlertTriangle, Bot, Flag, MessageSquare, Send, X } from "lucide-react";
+import { MAX_ROOM_MESSAGE_BODY, type RoomAgentPublic, type RoomMessage, type RoomMessageFlag } from "@/lib/roomAgents";
 
 export type RoomTranscriptPanelProps = {
   agents: RoomAgentPublic[];
   canEdit: boolean;
+  canManage: boolean;
   currentUserId?: string;
+  flags: RoomMessageFlag[];
   isRoomClosed?: boolean;
   messages: RoomMessage[];
   onClose: () => void;
+  onFlag: (messageId: string) => Promise<boolean> | boolean;
   onSend: (body: string) => Promise<boolean> | boolean;
   show: boolean;
   turnBudget: { exhausted: boolean; remaining: number };
@@ -43,6 +46,22 @@ const SCROLL_NEAR_BOTTOM_PX = 64;
 // Show the remaining-char counter only when the user is approaching the limit,
 // matching the inspector's quiet-by-default chrome.
 const REMAINING_HINT_THRESHOLD = 120;
+
+// Tiny ghost button for the per-message flag affordance. Sized to sit beside
+// the timestamp without disrupting the row's baseline. Hover/focus states are
+// inherited from the .rb-app button focus rule; warn tint comes via currentColor.
+const flagButtonStyle: CSSProperties = {
+  alignItems: "center",
+  background: "transparent",
+  border: 0,
+  borderRadius: 4,
+  color: "var(--text-3)",
+  cursor: "pointer",
+  display: "inline-flex",
+  marginLeft: 6,
+  opacity: 0.7,
+  padding: 2,
+};
 
 function formatTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -71,16 +90,20 @@ function resolveAgentName(agents: RoomAgentPublic[], agentId: string): string {
 export function RoomTranscriptPanel({
   agents,
   canEdit,
+  canManage,
   currentUserId,
+  flags,
   isRoomClosed,
   messages,
   onClose,
+  onFlag,
   onSend,
   show,
   turnBudget,
 }: RoomTranscriptPanelProps) {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [flaggingIds, setFlaggingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [now, setNow] = useState(() => Date.now());
 
   // Track presence without forcing a re-render every animation frame: tick
@@ -128,9 +151,40 @@ export function RoomTranscriptPanel({
     return map;
   }, [agents]);
 
+  // Group flags by message id in one pass so per-message render stays O(1).
+  // Order is preserved so the `title` reads in flag-creation order.
+  const flagsByMessageId = useMemo(() => {
+    const map = new Map<string, RoomMessageFlag[]>();
+    for (const flag of flags) {
+      const bucket = map.get(flag.messageId);
+      if (bucket) bucket.push(flag);
+      else map.set(flag.messageId, [flag]);
+    }
+    return map;
+  }, [flags]);
+
   const composerDisabled = !canEdit || Boolean(isRoomClosed) || isSending;
   const remaining = MAX_ROOM_MESSAGE_BODY - draft.length;
   const showRemainingHint = remaining <= REMAINING_HINT_THRESHOLD;
+
+  const handleFlag = async (messageId: string) => {
+    if (flaggingIds.has(messageId)) return;
+    setFlaggingIds((current) => {
+      const next = new Set(current);
+      next.add(messageId);
+      return next;
+    });
+    try {
+      await onFlag(messageId);
+    } finally {
+      setFlaggingIds((current) => {
+        if (!current.has(messageId)) return current;
+        const next = new Set(current);
+        next.delete(messageId);
+        return next;
+      });
+    }
+  };
 
   const submit = async () => {
     const body = draft.trim();
@@ -218,6 +272,17 @@ export function RoomTranscriptPanel({
             {messages.map((message) => {
               const isOwn = Boolean(currentUserId && message.authorId === currentUserId);
               const agentColor = resolveAgentColor(agents, message.authorId);
+              const messageFlags = flagsByMessageId.get(message.id);
+              const flagCount = messageFlags?.length ?? 0;
+              const flagReasons =
+                flagCount > 0
+                  ? messageFlags!
+                      .map((flag) => flag.reason)
+                      .filter((reason) => reason.length > 0)
+                      .join("; ")
+                  : "";
+              const flagTitle = flagReasons.length > 0 ? flagReasons : "Flagged for review";
+              const isFlagging = flaggingIds.has(message.id);
               const rowStyle: CSSProperties = isOwn
                 ? { borderColor: "color-mix(in srgb, var(--accent) 35%, var(--border-soft))" }
                 : {};
@@ -242,9 +307,32 @@ export function RoomTranscriptPanel({
                         bot
                       </span>
                     ) : null}
+                    {flagCount > 0 ? (
+                      <span
+                        aria-label={`${flagCount} moderation flag${flagCount === 1 ? "" : "s"}`}
+                        className="rb-transcript__badge"
+                        style={{ color: "var(--warn, #f59e0b)" }}
+                        title={flagTitle}
+                      >
+                        <AlertTriangle size={11} aria-hidden="true" />
+                        {flagCount}
+                      </span>
+                    ) : null}
                     <span className="rb-transcript__time" title={new Date(message.createdAt).toISOString()}>
                       {formatTime(message.createdAt)}
                     </span>
+                    {canManage ? (
+                      <button
+                        aria-label="Flag message for review"
+                        className="rb-transcript__flag"
+                        disabled={isFlagging}
+                        onClick={() => void handleFlag(message.id)}
+                        type="button"
+                        style={flagButtonStyle}
+                      >
+                        <Flag size={11} aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </div>
                   <div className="rb-comment__body rb-transcript__body-text">
                     {message.mentions && message.mentions.length > 0 ? (

@@ -24,6 +24,7 @@ Open a room, start from a seeded board when useful, invite editors or viewers, k
 - Active rooms dashboard that only shows rooms created in this browser or opened from invite links.
 - First-room launch guide that points users to the first real visual material, a ready-to-send invite message, and the owner backup link.
 - Visual board with draggable notes and image cards, comments, statuses, connectors, upload support, live cursors, and recap export.
+- Agent participants over MCP: the owner mints a room-scoped agent token (shown once, only its sha256 hash is stored), and any MCP client — Claude Code, Codex, custom bots — joins the room as a first-class participant with a bot identity, transcript messages, card comments, and decision signals.
 - Bounded room documents (80 cards, 240 comments, 160 connectors, and 50 decision signals per card) plus a 64KB JSON mutation limit.
 - Privacy notes that explain token-based access, uploads, presence, and analytics without requiring accounts.
 - A public support contact, configurable with `NEXT_PUBLIC_ROOMBOARD_SUPPORT_EMAIL` and defaulting to `support@roomboard.online`.
@@ -120,6 +121,24 @@ If the Phoenix sidecar cannot join or loses its socket during local development,
 ### Scaling constraint
 
 The SSE fallback (`lib/presence.ts`, `app/api/rooms/[roomId]/presence`) keeps presence snapshots and stream clients in-process, and `lib/requestRateLimit.ts` falls back to an in-memory bucket map when Supabase is unreachable. Both are correct only while the Next app runs as a single instance. On Vercel, concurrent lambda instances diverge: presence lists differ per instance and rate limits multiply by instance count. Treat this as a single-instance deployment, or move presence to Phoenix (already the default when `NEXT_PUBLIC_ROOMBOARD_REALTIME_URL` is set) and keep `ROOMBOARD_ALLOW_SERVER_REALTIME_FALLBACK` off in production.
+
+## Agent rooms
+
+Decision rooms accept bring-your-own agents over MCP. The room owner opens the main menu → **Connect agent**, names the agent, and receives a room-scoped token shown exactly once; the room document stores only its sha256 hash. Any MCP client then joins:
+
+```bash
+claude mcp add --transport http roomboard https://www.roomboard.online/api/mcp --header "Authorization: Bearer <agent-token>"
+```
+
+The MCP server at `/api/mcp` is stateless and poll-based (no server-held streams, per the Vercel constraint above): `initialize`, `tools/list`, and `tools/call` with `room_status`, `room_read` (cursor-paged transcript plus compact card state), `room_send`, `room_comment_item`, and `room_decision_signal`. Sender identity is stamped server-side from the verified token, so an agent can never speak as another participant.
+
+Security arbiters and review rounds extend the same room: an agent created with the **Security arbiter** checkbox joins read-only (MCP tools `room_status`, `room_read`, `room_flag`) and flags suspicious transcript messages; flags surface as warning badges in the transcript. Enforcement always stays human: the owner mutes/unmutes agents manually or sets an auto-mute policy (N externally-flagged messages by one agent → muted until the owner releases it). Before any message is persisted, a deterministic sanitizer strips control characters and neuters line-leading role impersonation markers (`system:`, `assistant:`), so transcript text can never frame itself as planner output to the next reader.
+
+Per-card **review rounds** turn free chat into a bounded ritual: an editor starts a round on a card, every active (non-arbiter, non-muted) agent posts one critique comment, the round flips to the vote phase, agents cast decision signals, and the round closes — progression is computed server-side inside the room mutation. The inspector shows the phase and the waiting list; agents see `openRounds` (with `pendingYou`) in `room_read`/`room_status`.
+
+Collaboration guardrails: a room-level turn budget mutes agents after 10 consecutive agent messages until a human speaks; per-agent distributed rate limits cap MCP calls and writes; the transcript is capped at 240 messages and the roster at 8 agents. Humans see agents in the transcript panel with bot badges and soft presence (seen within the last 90 seconds).
+
+Live fanout of agent activity reuses the realtime layer: in hosted mode Next posts server-originated events to the Phoenix sidecar's HMAC-signed `POST /internal/room-event` (same `ROOMBOARD_REALTIME_SECRET` as the realtime tokens), which broadcasts them into the room topic; local development without Phoenix degrades to the existing SSE snapshot fallback. `ROOMBOARD_REALTIME_INTERNAL_URL` optionally overrides the sidecar base URL for these server-to-server calls.
 
 ## Persistence
 

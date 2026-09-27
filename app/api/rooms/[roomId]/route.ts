@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import {
   addRoomComment,
   addRoomMessage,
+  addRoomMessageFlag,
   beginRoomPermanentDeletion,
   canPermanentlyDeleteRoom,
   toggleRoomItemDecisionSignal,
   canAccessRoom,
   canEditRoom,
   closeRoom,
+  closeRoomReviewRound,
   createRoomAgent,
   createRoomConnection,
   createRoomItem,
@@ -19,6 +21,7 @@ import {
   getRoomSummary,
   getRoomSnapshot,
   isRoomCapacityError,
+  isRoomAgentNameError,
   isRoomItemStyleVariant,
   isRoomOwner,
   isRoomTurnBudgetError,
@@ -26,6 +29,9 @@ import {
   revokeRoomAgent,
   roomItemStatuses,
   setRoomAccess,
+  setRoomAgentMuted,
+  setRoomModerationPolicy,
+  startRoomReviewRound,
   setRoomInviteExpiry,
   setRoomSnapshotPublic,
   setRoomVisibility,
@@ -157,6 +163,7 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
       | "decision-signal"
       | "item"
       | "message"
+      | "flag"
       | "connection"
       | "reverse-connection"
       | "delete-connection"
@@ -170,6 +177,8 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
     author?: string;
     authorId?: string;
     mentions?: string[];
+    messageId?: string;
+    reason?: string;
     voterId?: string;
     color?: string;
     status?: RoomItemStatus;
@@ -234,6 +243,30 @@ async function handlePost(request: Request, { params }: RoomRouteProps) {
     }
 
     return NextResponse.json({ message });
+  }
+
+  if (payload.action === "flag") {
+    if (!payload.messageId?.trim()) {
+      return NextResponse.json({ error: "messageId is required." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can flag messages." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    const flag = await addRoomMessageFlag(
+      { messageId: payload.messageId, flaggerId: "owner", reason: payload.reason },
+      roomId,
+    );
+
+    if (!flag) {
+      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({ flag });
   }
 
   if (payload.action === "decision-signal") {
@@ -359,8 +392,12 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     action?:
       | "access"
       | "agent-create"
+      | "agent-mute"
       | "agent-revoke"
       | "invite-expiry"
+      | "moderation-policy"
+      | "round-close"
+      | "round-start"
       | "snapshot"
       | "visibility";
     access?: RoomAccess;
@@ -381,6 +418,10 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     author?: string;
     agentId?: string;
     assigneeId?: string | null;
+    muted?: boolean;
+    autoMuteFlags?: number | null;
+    itemId?: string;
+    isArbiter?: boolean;
     name?: string;
   }>(request);
 
@@ -468,7 +509,9 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     if (limited) return limited;
 
     try {
-      const created = await createRoomAgent(roomId, payload.name, credentials);
+      const created = await createRoomAgent(roomId, payload.name, credentials, {
+        isArbiter: payload.isArbiter === true,
+      });
 
       if (!created) {
         return NextResponse.json({ error: "Agent could not be created." }, { status: 400 });
@@ -478,6 +521,10 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     } catch (error) {
       if (isRoomCapacityError(error)) {
         return NextResponse.json({ error: "Agent roster is full. Revoke an agent first." }, { status: 409 });
+      }
+
+      if (isRoomAgentNameError(error)) {
+        return NextResponse.json({ error: "Agent name is already taken in this room." }, { status: 409 });
       }
 
       throw error;
@@ -497,6 +544,64 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     if (limited) return limited;
 
     return NextResponse.json({ ok: await revokeRoomAgent(roomId, payload.agentId, credentials) });
+  }
+
+  if (payload.action === "agent-mute") {
+    if (!payload.agentId?.trim() || typeof payload.muted !== "boolean") {
+      return NextResponse.json({ error: "agentId and muted are required." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can mute agents." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    return NextResponse.json({ ok: await setRoomAgentMuted(roomId, payload.agentId, payload.muted, credentials) });
+  }
+
+  if (payload.action === "moderation-policy") {
+    if (payload.autoMuteFlags !== null && typeof payload.autoMuteFlags !== "number") {
+      return NextResponse.json({ error: "autoMuteFlags must be a number or null." }, { status: 400 });
+    }
+
+    if (!(await isRoomOwner(roomId, credentials))) {
+      return NextResponse.json({ error: "Only the room creator can set moderation policy." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    return NextResponse.json({ ok: await setRoomModerationPolicy(roomId, payload.autoMuteFlags ?? null, credentials) });
+  }
+
+  if (payload.action === "round-start" || payload.action === "round-close") {
+    if (!payload.itemId?.trim()) {
+      return NextResponse.json({ error: "itemId is required." }, { status: 400 });
+    }
+
+    if (!(await canEditRoom(roomId, credentials))) {
+      return NextResponse.json({ error: "Editor access is required." }, { status: 403 });
+    }
+
+    const limited = await checkRoomWriteRateLimit(request, roomId, "control", ROOM_CONTROL_LIMIT_PER_HOUR);
+    if (limited) return limited;
+
+    if (payload.action === "round-start") {
+      const round = await startRoomReviewRound(roomId, payload.itemId, credentials);
+
+      if (!round) {
+        return NextResponse.json(
+          { error: "A review round is already open on this card, or no active agents are connected." },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({ round });
+    }
+
+    return NextResponse.json({ ok: await closeRoomReviewRound(roomId, payload.itemId, credentials) });
   }
 
   if (!(await canEditRoom(roomId, credentials))) {
