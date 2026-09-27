@@ -380,6 +380,7 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
     styleVariant?: unknown;
     author?: string;
     agentId?: string;
+    assigneeId?: string | null;
     name?: string;
   }>(request);
 
@@ -530,6 +531,7 @@ async function handlePatch(request: Request, { params }: RoomRouteProps) {
       height: payload.height,
       color: payload.color,
       styleVariant: payload.styleVariant,
+      assigneeId: payload.assigneeId,
       actor: payload.author,
     },
     roomId,
