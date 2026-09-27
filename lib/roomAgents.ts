@@ -132,8 +132,7 @@ export function roomAgentTokenHashesMatch(candidateHash: string, storedHash: str
 }
 
 export function normalizeRoomMessageBody(body: unknown): string {
-  return typeof body === "string" ? body.trim().slice(0, MAX_ROOM_MESSAGE_BODY) : "";
-}
+  return typeof body === "string" ? body.trim().slice(0, MAX_ROOM_MESSAGE_BODY) : "";}
 
 export function normalizeRoomMessageMentions(mentions: unknown, knownAgentIds?: Set<string>): string[] {
   if (!Array.isArray(mentions)) {
@@ -297,4 +296,27 @@ export function mergeRoomMessages(
   return Array.from(byId.values())
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(-cap);
+}
+
+/**
+ * Resolve `@Name` tokens in a composer draft against the room roster so a
+ * human message can wake specific agents. Longest names first so "Hermes 2"
+ * is not swallowed by "Hermes".
+ */
+export function extractMentions(body: string, agents: Array<{ id: string; name: string }>): string[] {
+  const found: string[] = [];
+
+  for (const agent of [...agents].sort((a, b) => b.name.length - a.name.length)) {
+    if (found.length >= MAX_ROOM_MESSAGE_MENTIONS) {
+      break;
+    }
+
+    const escaped = agent.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    if (new RegExp(`@${escaped}(?![\\w-])`, "i").test(body) && !found.includes(agent.id)) {
+      found.push(agent.id);
+    }
+  }
+
+  return found;
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  addRoomMessage,
   assertRoomCapacity,
   beginRoomPermanentDeletion,
   buildRoomDecisionBrief,
@@ -10,6 +11,7 @@ import {
   closeRoom,
   createRoom,
   createRoomItem,
+  createRoomAgent,
   deleteRoomPermanently,
   duplicateRoomItem,
   getLifecycleCopy,
@@ -105,6 +107,9 @@ function makeSnapshot(
       connectionCount: 1,
       activityCount: activities.length,
       liveCount: 0,
+      agentBackedCount: items.filter((item) =>
+        (item.decisionSignals ?? []).some((signal) => signal.voterId?.startsWith("agent:")),
+      ).length,
       statusCounts,
       participants: [],
       previewItems: [],
@@ -864,5 +869,89 @@ describe("mutating a room that is already gone", () => {
     assert.equal(isRoomNotFoundError(new Error("Supabase unreachable")), false);
     assert.equal(isRoomNotFoundError(null), false);
     assert.equal(isRoomNotFoundError('Room "x" not found.'), false);
+  });
+});
+
+describe("slice 2: assignment and agent recap", () => {
+  it("assigns and clears an agent assignee through updateRoomItem", async () => {
+    const { ownerToken, room } = await createRoom("Slice two assignment room");
+    const item = await createRoomItem(
+      { type: "note", title: "Assignable card", author: "Owner", color: "#facc5c" },
+      room.id,
+    );
+    assert.ok(item);
+
+    const assigned = await updateRoomItem({ id: item.id, assigneeId: "agent:a1" }, room.id);
+    assert.equal(assigned?.assigneeId, "agent:a1");
+
+    const cleared = await updateRoomItem({ id: item.id, assigneeId: null }, room.id);
+    assert.equal(cleared?.assigneeId, undefined);
+
+    await deleteRoomPermanently(room.id, { ownerToken });
+  });
+
+  it("summarizes per-agent messages, comments, and backed cards in the recap", () => {
+    const recap = buildRoomRecap({
+      ...makeSnapshot([
+        makeItem({
+          comments: [{ id: "c1", author: "Hermes", body: "Cut it.", color: "#7c8cff", createdAt: updatedAt }],
+          decisionSignals: [{ voterId: "agent:a1", voter: "Hermes", color: "#7c8cff", createdAt: updatedAt }],
+          status: "approved",
+          title: "Launch copy",
+        }),
+      ]),
+      agents: [{ id: "a1", name: "Hermes", color: "#7c8cff", createdAt: updatedAt }],
+      messages: [
+        {
+          id: "m1",
+          authorId: "agent:a1",
+          authorName: "Hermes",
+          authorKind: "agent",
+          body: "hi",
+          createdAt: updatedAt,
+        },
+        {
+          id: "m2",
+          authorId: "agent:a1",
+          authorName: "Hermes",
+          authorKind: "agent",
+          body: "yo",
+          createdAt: updatedAt,
+        },
+      ],
+    });
+
+    assert.deepEqual(recap.agentReview, [
+      {
+        id: "a1",
+        name: "Hermes",
+        color: "#7c8cff",
+        messageCount: 2,
+        commentCount: 1,
+        backedTitles: ["Launch copy"],
+      },
+    ]);
+    assert.match(recap.markdown, /## Agent review/);
+    assert.match(recap.markdown, /Hermes — 2 messages, 1 comment, backs: Launch copy/);
+  });
+
+  it("omits the agent review section when no agents are connected", () => {
+    const recap = buildRoomRecap(makeSnapshot([makeItem()]));
+    assert.deepEqual(recap.agentReview, []);
+    assert.equal(recap.markdown.includes("## Agent review"), false);
+  });
+
+  it("extracts @name mentions server-side when the sender declares none", async () => {
+    const { ownerToken, room } = await createRoom("Slice two mentions room");
+    const createdAgent = await createRoomAgent(room.id, "Hermes", { ownerToken });
+    assert.ok(createdAgent);
+
+    const message = await addRoomMessage(
+      { authorId: "owner-1", authorName: "Owner", authorKind: "human", body: "@Hermes take a look" },
+      room.id,
+    );
+
+    assert.deepEqual(message?.mentions, [createdAgent.agent.id]);
+    await deleteRoomPermanently(room.id, { ownerToken });
   });
 });

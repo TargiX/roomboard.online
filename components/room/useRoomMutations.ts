@@ -18,7 +18,13 @@ import { recordAuthoredFirstCard, resolveFirstCardEventName } from "@/lib/firstC
 import { buildRoomInviteMessage } from "@/lib/roomInviteMessage";
 import { buildRoomPathWithHashToken, setRoomHashToken } from "@/lib/roomLinks";
 import { trackProductEvent } from "@/lib/productAnalytics";
-import { inviteTokensKey, ownerTokensKey, readStoredTokenMap, writeOwnerToken, writeStoredTokenMap } from "@/lib/roomTokens";
+import {
+  inviteTokensKey,
+  ownerTokensKey,
+  readStoredTokenMap,
+  writeOwnerToken,
+  writeStoredTokenMap,
+} from "@/lib/roomTokens";
 import { upsertUniqueConnection } from "@/components/room/connectionDrag";
 import { getDomain, getImageCardSize, getImageDimensions, truncate } from "@/lib/pixiScene";
 import type { ProductAnalyticsProperties } from "@/components/room/roomTypes";
@@ -1020,7 +1026,12 @@ export function useRoomMutations({
     }
   };
 
-  const patchItem = async (input: { color?: string; id: string; styleVariant?: RoomItemStyleVariant }) => {
+  const patchItem = async (input: {
+    assigneeId?: string | null;
+    color?: string;
+    id: string;
+    styleVariant?: RoomItemStyleVariant;
+  }) => {
     const response = await fetch(roomApi, {
       body: JSON.stringify({ author: user?.name, ...input }),
       headers: { "Content-Type": "application/json", ...roomCredentialsHeaders },

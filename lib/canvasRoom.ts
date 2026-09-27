@@ -7,6 +7,7 @@ import {
   AGENT_TURN_BUDGET,
   MAX_ROOM_TRANSCRIPT,
   createRoomAgentToken,
+  extractMentions,
   getAgentTurnBudgetState,
   getRoomAgentColor,
   hashRoomAgentToken,
@@ -90,6 +91,8 @@ export type RoomItem = {
   comments: RoomComment[];
   decisionSignals?: RoomDecisionSignal[];
   styleVariant?: RoomItemStyleVariant;
+  /** Participant id this card is assigned to: `agent:<agentId>` or a human user id. */
+  assigneeId?: string;
 };
 
 export type RoomConnectionSide = "top" | "right" | "bottom" | "left";
@@ -160,6 +163,7 @@ export type RoomSummary = {
   imageCount: number;
   commentCount: number;
   connectionCount: number;
+  agentBackedCount: number;
   activityCount: number;
   liveCount: number;
   statusCounts: Record<RoomItemStatus, number>;
@@ -211,6 +215,15 @@ export type RoomRecapSection = {
   items: RoomRecapItem[];
 };
 
+export type RoomRecapAgentReview = {
+  id: string;
+  name: string;
+  color: string;
+  messageCount: number;
+  commentCount: number;
+  backedTitles: string[];
+};
+
 export type RoomRecap = {
   roomId: string;
   roomName: string;
@@ -224,6 +237,7 @@ export type RoomRecap = {
   connectionCount: number;
   sections: RoomRecapSection[];
   recentActivities: RoomActivity[];
+  agentReview: RoomRecapAgentReview[];
   markdown: string;
 };
 
@@ -512,6 +526,8 @@ function normalizeRoomDocument(room: RoomDocument): RoomDocument {
     },
     items: room.items.map((item) => ({
       ...item,
+      assigneeId:
+        typeof item.assigneeId === "string" && item.assigneeId.trim() ? item.assigneeId.trim().slice(0, 96) : undefined,
       color: normalizeRoomColor(item.color),
       comments: item.comments.map((comment) => ({
         ...comment,
@@ -1519,6 +1535,9 @@ function toRoomSummary(
     connectionCount: dedupeRoomConnections(room.connections).length,
     activityCount: room.activities?.length ?? 0,
     liveCount: clientsByRoom.get(room.id)?.size ?? 0,
+    agentBackedCount: items.filter((item) =>
+      (item.decisionSignals ?? []).some((signal) => signal.voterId?.startsWith("agent:")),
+    ).length,
     statusCounts,
     participants: Array.from(participants.values()).slice(0, 4),
     previewItems: items.slice(0, 5).map((item) => ({
@@ -1633,7 +1652,12 @@ export function buildRoomDecisionBrief(items: RoomItem[]): RoomDecisionBrief {
   };
 }
 
-export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room">): RoomRecap {
+export function buildRoomRecap(
+  snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room"> & {
+    agents?: RoomAgentPublic[];
+    messages?: RoomMessage[];
+  },
+): RoomRecap {
   const sections = recapStatusOrder.map((status) => {
     const sectionItems = snapshot.items
       .filter((item) => item.status === status)
@@ -1650,6 +1674,23 @@ export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "conn
   const decidedCount = (snapshot.room.statusCounts.approved ?? 0) + (snapshot.room.statusCounts.changes_requested ?? 0);
   const unresolvedCount = (snapshot.room.statusCounts.open ?? 0) + (snapshot.room.statusCounts.reviewing ?? 0);
   const recentActivities = [...snapshot.activities].sort((a, b) => b.createdAt - a.createdAt).slice(0, 8);
+  const transcript = snapshot.messages ?? [];
+  const agentReview: RoomRecapAgentReview[] = (snapshot.agents ?? []).map((agent) => {
+    const agentVoterId = `agent:${agent.id}`;
+    return {
+      id: agent.id,
+      name: agent.name,
+      color: agent.color,
+      messageCount: transcript.filter((message) => message.authorId === agentVoterId).length,
+      commentCount: snapshot.items.reduce(
+        (total, item) => total + item.comments.filter((comment) => comment.author === agent.name).length,
+        0,
+      ),
+      backedTitles: snapshot.items
+        .filter((item) => (item.decisionSignals ?? []).some((signal) => signal.voterId === agentVoterId))
+        .map((item) => item.title.trim() || "Untitled card"),
+    };
+  });
   const markdownLines = [
     `# Roomboard recap: ${snapshot.room.name}`,
     "",
@@ -1694,6 +1735,21 @@ export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "conn
   }
   markdownLines.push("");
 
+  if (agentReview.length > 0) {
+    markdownLines.push("## Agent review");
+    for (const entry of agentReview) {
+      const parts = [
+        `${entry.messageCount} ${entry.messageCount === 1 ? "message" : "messages"}`,
+        `${entry.commentCount} ${entry.commentCount === 1 ? "comment" : "comments"}`,
+      ];
+      if (entry.backedTitles.length > 0) {
+        parts.push(`backs: ${entry.backedTitles.join(", ")}`);
+      }
+      markdownLines.push(`- ${entry.name} — ${parts.join(", ")}`);
+    }
+    markdownLines.push("");
+  }
+
   if (snapshot.connections.length > 0) {
     const titleById = new Map(snapshot.items.map((item) => [item.id, item.title.trim() || "Untitled card"]));
     markdownLines.push("## Card links");
@@ -1724,6 +1780,7 @@ export function buildRoomRecap(snapshot: Pick<RoomSnapshot, "activities" | "conn
     commentCount: snapshot.room.commentCount,
     connectionCount: snapshot.connections.length,
     sections,
+    agentReview,
     recentActivities,
     markdown: markdownLines.join("\n").trim(),
   };
@@ -2338,6 +2395,7 @@ export async function updateRoomItem(
     color?: string;
     status?: RoomItemStatus;
     styleVariant?: RoomItemStyleVariant;
+    assigneeId?: string | null;
     actor?: string;
   },
   roomId = DEFAULT_ROOM_ID,
@@ -2350,6 +2408,7 @@ export async function updateRoomItem(
     }
 
     const before = {
+      assigneeId: item.assigneeId,
       body: item.body,
       color: item.color,
       imageUrl: item.imageUrl,
@@ -2386,6 +2445,13 @@ export async function updateRoomItem(
       item.styleVariant = input.styleVariant;
     }
 
+    if (input.assigneeId !== undefined) {
+      item.assigneeId =
+        typeof input.assigneeId === "string" && input.assigneeId.trim()
+          ? input.assigneeId.trim().slice(0, 96)
+          : undefined;
+    }
+
     if (Number.isFinite(input.x)) {
       item.x = clampRoomNumber(input.x, item.x, -100000, 100000);
     }
@@ -2413,7 +2479,8 @@ export async function updateRoomItem(
       item.color !== before.color ||
       item.styleVariant !== before.styleVariant ||
       item.width !== before.width ||
-      item.height !== before.height;
+      item.height !== before.height ||
+      item.assigneeId !== before.assigneeId;
 
     if (statusChanged) {
       appendRoomActivity(room, {
@@ -2658,7 +2725,13 @@ export async function addRoomMessage(
     }
 
     const knownAgentIds = new Set((room.agents ?? []).map((agent) => agent.id));
-    const mentions = normalizeRoomMessageMentions(input.mentions, knownAgentIds);
+    // When the sender declares no mentions (raw API callers, MCP agents that
+    // forget the field), resolve @name tokens server-side so wake semantics
+    // hold on every entry point.
+    const mentions =
+      input.mentions === undefined
+        ? extractMentions(body, room.agents ?? [])
+        : normalizeRoomMessageMentions(input.mentions, knownAgentIds);
     const message: RoomMessage = {
       id: crypto.randomUUID(),
       authorId: input.authorId.trim().slice(0, 96) || "unknown",
