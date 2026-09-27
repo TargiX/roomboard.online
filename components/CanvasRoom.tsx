@@ -1026,7 +1026,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     const params = new URLSearchParams(window.location.search);
     const isNewRoom = params.get("new") === "1" || params.get("created") === "1";
 
-    if (!isNewRoom) {
+    if (!isNewRoom || params.get("connectAgent") === "1") {
       return;
     }
 
@@ -1114,6 +1114,25 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   }, [hasRoomSnapshot, inviteToken, ownerToken, trackRoomActivationEvent, useRealtimeFallback]);
   const canEditRoom = permissions.canEdit;
   const canManageRoom = permissions.canManage;
+
+  const connectAgentModalOpenedRef = useRef(false);
+
+  // Entry pages deep-link first-time owners straight into agent onboarding:
+  // once the snapshot and owner rights are in, open the Connect-agent modal.
+  useEffect(() => {
+    if (connectAgentModalOpenedRef.current || !hasRoomSnapshot || !canManageRoom) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("connectAgent") !== "1") {
+      return;
+    }
+
+    connectAgentModalOpenedRef.current = true;
+    setShowAgentsModal(true);
+  }, [canManageRoom, hasRoomSnapshot]);
   const statusCounts = useMemo(
     () =>
       items.reduce<Record<RoomItemStatus, number>>(
