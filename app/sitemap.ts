@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 const baseUrl = "https://www.roomboard.online";
-const adReadyRoutes = ["/for/landing-review", "/for/moodboard", "/for/blank-room"];
+const adReadyRoutes = ["/for/landing-review", "/for/moodboard", "/for/blank-room", "/for/agent-review"];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [

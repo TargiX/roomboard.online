@@ -2,7 +2,7 @@
 
 **Live app:** [www.roomboard.online](https://www.roomboard.online)
 
-**Product entry points:** [landing review](https://www.roomboard.online/for/landing-review) · [moodboard](https://www.roomboard.online/for/moodboard) · [blank room](https://www.roomboard.online/for/blank-room)
+**Product entry points:** [landing review](https://www.roomboard.online/for/landing-review) · [moodboard](https://www.roomboard.online/for/moodboard) · [blank room](https://www.roomboard.online/for/blank-room) · [agent review](https://www.roomboard.online/for/agent-review)
 
 **Source:** [github.com/TargiX/flux-graph-pixi](https://github.com/TargiX/flux-graph-pixi)
 

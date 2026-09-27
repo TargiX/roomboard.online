@@ -31,6 +31,10 @@ Do not lead with accounts, billing, SaaS architecture, Stripe, or stack proof on
   - Use when the user already has screenshots, product states, or references ready.
   - Promise: clean private room with a first decision prompt, invite links, and owner backup access.
 
+- `https://www.roomboard.online/for/agent-review`
+  - Use for builders who want their own AI agent (Claude Code, Codex, any MCP client) to review the real material alongside them.
+  - Promise: private decision room that opens straight into agent onboarding — one-time token, paste-ready `claude mcp add` command, transcript, card comments, and a human-signed decision record.
+
 The homepage now leads with launch approval. Paid or targeted traffic should still use the scenario routes so intent and attribution stay explicit.
 
 ## First Traffic Batch
@@ -77,6 +81,17 @@ It is a private launch approval room: add the real page or campaign, invite one 
 
 Can you try creating one room and inviting one person to comment?
 https://www.roomboard.online/for/landing-review?utm_source=first_batch&utm_medium=direct&utm_campaign=landing_review&utm_content=founder_dm
+```
+
+Builder-with-agents DM:
+
+```text
+I am testing Roomboard agent rooms with a few builders before opening them wider.
+
+It is a private decision room where your own AI agent joins over MCP: paste one command, and it reviews the real cards with you — comments, backs, reports — while you keep the final call.
+
+Can you try connecting one agent to a fresh room?
+https://www.roomboard.online/for/agent-review?utm_source=first_batch&utm_medium=direct&utm_campaign=agent_review&utm_content=builder_dm
 ```
 
 Design or creative DM:
@@ -131,6 +146,8 @@ Good first lines:
 - Open a private room, invite the right people, and decide what ships.
 - Review a landing page together before traffic hits it.
 - Choose a visual direction without a messy thread.
+- Bring your own agent: Claude Code or any MCP client reviews the room with you, you sign the decision.
+- A decision room for humans and their agents — transcript, card findings, and a record someone owns.
 
 Avoid:
 
@@ -236,8 +253,9 @@ Use this triage map before changing copy or buying more traffic:
 
 ## Do Not Launch If
 
-- `/for/landing-review`, `/for/moodboard`, or `/for/blank-room` return 404.
+- `/for/landing-review`, `/for/moodboard`, `/for/blank-room`, or `/for/agent-review` return 404.
 - `pnpm readiness:prod` fails.
+- `pnpm smoke:agents` fails against the deployment.
 - `https://www.roomboard.online/api/health` does not expose the current launch health contract: `launchReady` plus `launch.checks`.
 - `launchReady` is missing or false in production health.
 - Newly created rooms appear in `/api/rooms` without owner or invite tokens.

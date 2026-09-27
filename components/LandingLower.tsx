@@ -15,7 +15,7 @@ import {
   useVelocity,
   type MotionValue,
 } from "motion/react";
-import { Lock, MessageSquare, MousePointer2 } from "lucide-react";
+import { Lock, MessageSquare, MessagesSquare, MousePointer2, ShieldCheck, Terminal } from "lucide-react";
 import type { StarterId } from "./LandingPage";
 import { roomboardSupportMailto } from "@/lib/support";
 
@@ -867,6 +867,106 @@ function UseCaseDeck({ isCreating, startRoom }: LandingLowerProps) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 5.5 agent rooms — humans + their MCP agents, same cards & transcript*/
+/* ------------------------------------------------------------------ */
+
+const agentRoomBullets = [
+  {
+    icon: Terminal,
+    iconBg: "rgba(131, 216, 204, 0.12)",
+    iconColor: "var(--lx-aqua)",
+    kicker: "Bring your own agent",
+    title: "One command, room-scoped token.",
+    body: "Claude Code, Codex, or any MCP client joins with a single command and a room-scoped token. Keys and tools stay on your machine — the agent only sees the room.",
+  },
+  {
+    icon: MessagesSquare,
+    iconBg: "rgba(143, 163, 205, 0.14)",
+    iconColor: "var(--lx-steel)",
+    kicker: "Results land on cards",
+    title: "Same cards, same transcript.",
+    body: "Agents comment, back cards, and report into the shared transcript. The decision record stays human-signed — the room, not the model, owns the call.",
+  },
+  {
+    icon: ShieldCheck,
+    iconBg: "rgba(201, 161, 88, 0.14)",
+    iconColor: "var(--lx-accent-2)",
+    kicker: "Kept honest",
+    title: "Turn budgets, arbiter, mute.",
+    body: "Per-agent turn budgets, a read-only security arbiter with flags, and owner-controlled mute keep agent chatter contained.",
+  },
+];
+
+function AgentRooms() {
+  return (
+    <section className="lx-ar" id="agent-rooms">
+      <div className="lx-ar__grid">
+        <div className="lx-ar__left">
+          <SectionHead num="05" label="Agent rooms" />
+          <motion.h2
+            initial={{ opacity: 0, y: 28 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.6 }}
+            transition={{ duration: 0.7, ease: EASE }}
+          >
+            Your reviewers — and their
+            <br />
+            <em>agents — in one room.</em>
+          </motion.h2>
+          <p className="lx-ar__sub">
+            Humans and bring-your-own agents converge on the same cards, transcript, and decision record.
+          </p>
+          <motion.div
+            className="lx-ar__cta"
+            initial={{ opacity: 0, y: 18 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.8 }}
+            transition={{ duration: 0.6, ease: EASE, delay: 0.15 }}
+          >
+            <a className="lx-ar__btn" href="/for/agent-review">
+              <span>Try an agent review room</span>
+              <span className="arr" aria-hidden="true">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path d="M3 8h10M9 4l4 4-4 4" />
+                </svg>
+              </span>
+            </a>
+          </motion.div>
+        </div>
+        <div className="lx-ar__list">
+          {agentRoomBullets.map((bullet, index) => {
+            const Icon = bullet.icon;
+            return (
+              <motion.article
+                className="lx-ar__card"
+                key={bullet.kicker}
+                initial={{ opacity: 0, y: 28 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.45 }}
+                transition={{ duration: 0.6, ease: EASE, delay: index * 0.08 }}
+              >
+                <span
+                  className="lx-ar__icon"
+                  style={{ background: bullet.iconBg, color: bullet.iconColor }}
+                  aria-hidden="true"
+                >
+                  <Icon size={18} />
+                </span>
+                <div className="lx-ar__copy">
+                  <span className="lx-ar__kicker">{bullet.kicker}</span>
+                  <h3>{bullet.title}</h3>
+                  <p>{bullet.body}</p>
+                </div>
+              </motion.article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 6. FAQ                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -877,7 +977,7 @@ function Faq() {
     <section className="lx-faq" id="faq">
       <div className="lx-faq__grid">
         <div className="lx-faq__left">
-          <SectionHead num="05" label="Security & access" />
+          <SectionHead num="06" label="Security & access" />
           <motion.h2
             initial={{ opacity: 0, y: 28 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -1080,6 +1180,7 @@ export function LandingLower({ isCreating, startRoom }: LandingLowerProps) {
       <HowItWorks />
       <Features />
       <UseCaseDeck isCreating={isCreating} startRoom={startRoom} />
+      <AgentRooms />
       <Faq />
       <FinalCta isCreating={isCreating} startRoom={startRoom} />
       <Footer />

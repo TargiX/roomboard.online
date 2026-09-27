@@ -5801,6 +5801,142 @@ body.landing::before {
 }
 
 /* ============================================================
+   5.5 AGENT ROOMS — humans + their MCP agents
+   ============================================================ */
+.lx-ar {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 60px 32px 130px;
+}
+.lx-ar__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(40px, 6vw, 110px);
+  align-items: start;
+}
+.lx-ar__left {
+  position: sticky;
+  top: 110px;
+}
+.lx-ar__left h2 {
+  margin: 0 0 18px;
+  font-family: var(--lx-serif);
+  font-size: clamp(32px, 3.8vw, 56px);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 0.98;
+}
+.lx-ar__left em {
+  color: var(--lx-aqua);
+  font-style: italic;
+}
+.lx-ar__sub {
+  margin: 0 0 30px;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--lx-muted);
+  max-width: 340px;
+}
+.lx-ar__cta {
+  position: relative;
+  margin-top: 4px;
+}
+.lx-ar__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px 16px 28px;
+  background: transparent;
+  border: 1px solid var(--lx-line-2);
+  color: var(--lx-ink);
+  font-family: var(--lx-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.25s,
+    color 0.25s,
+    border-color 0.25s;
+}
+.lx-ar__btn:hover {
+  background: var(--lx-ink);
+  border-color: var(--lx-ink);
+  color: #0a0d14;
+}
+.lx-ar__btn .arr {
+  width: 36px;
+  height: 36px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  transition: transform 0.25s;
+}
+.lx-ar__btn .arr svg {
+  width: 14px;
+  height: 14px;
+}
+.lx-ar__btn:hover .arr {
+  transform: translateX(4px);
+}
+
+.lx-ar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.lx-ar__card {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 22px;
+  padding: 26px 4px;
+  border-top: 1px solid var(--lx-line);
+}
+.lx-ar__card:last-child {
+  border-bottom: 1px solid var(--lx-line);
+}
+.lx-ar__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--lx-line-2);
+  border-radius: 12px;
+}
+.lx-ar__icon svg {
+  display: block;
+}
+.lx-ar__copy h3 {
+  margin: 0 0 8px;
+  font-family: var(--lx-display);
+  font-size: clamp(18px, 1.7vw, 21px);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--lx-ink);
+  line-height: 1.25;
+}
+.lx-ar__copy p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--lx-muted);
+  max-width: 520px;
+}
+.lx-ar__kicker {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--lx-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lx-faint);
+}
+
+/* ============================================================
    6. FAQ
    ============================================================ */
 .lx-faq {
@@ -6208,6 +6344,20 @@ body.landing::before {
   }
   .lx-faq__left {
     position: static;
+  }
+
+  .lx-ar {
+    padding: 40px 22px 80px;
+  }
+  .lx-ar__grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .lx-ar__left {
+    position: static;
+  }
+  .lx-ar__btn {
+    max-width: 100%;
   }
 
   .lx-final {
