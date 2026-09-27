@@ -54,6 +54,7 @@ pnpm realtime:prod
 pnpm realtime:prod:session
 pnpm release:prod:check
 pnpm smoke
+pnpm smoke:agents
 pnpm smoke:realtime
 ```
 

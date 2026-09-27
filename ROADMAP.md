@@ -197,6 +197,7 @@ Use `LAUNCH.md` for campaign positioning, first-user entry URLs, and the do-not-
 - `pnpm readiness:prod` after deployment and before inviting first users or sending paid traffic.
 - `pnpm realtime:prod` to verify the live Next `/api/health` realtime checks and the configured Phoenix sidecar `/health` endpoint agree before traffic.
 - `pnpm smoke` for the local app path after starting `pnpm dev` or `pnpm start -p 3050`.
+- `pnpm smoke:agents` exercises the agent MCP surface without a browser: token mint, JSON-RPC initialize/tools/call round-trip, transcript persistence in the snapshot, hash-free roster projection, and 401 for the token after revoke. `pnpm readiness:local` / `readiness:prod` probe `/api/mcp` (401 unauthenticated, 405 on GET) as part of the launch contract. Note: `pnpm smoke`'s browser flow additionally needs a GPU-capable headless Chromium; on software-GL machines it hits a pre-existing pixi PageError (`reading 'next'`, reproducible on clean origin/main) unrelated to agent rooms.
 - `pnpm smoke:realtime` to launch Next + Phoenix, verify realtime fanout, then verify fallback after Phoenix stops. Requires the Elixir toolchain and `mix setup` in `realtime/roomboard_realtime/` first.
 - `SMOKE_BASE_URL=https://www.roomboard.online pnpm smoke` against the production showcase. This creates, mutates, and uploads assets for a real smoke-test room, then permanently deletes its room document and hosted uploads.
 - `curl -fsS https://<phoenix-host>/health` returns healthy for the deployed sidecar.

@@ -135,6 +135,8 @@ function assertRoomsConsoleDefaults() {
 function assertFirstRoomProfileCopy() {
   const lifecycleSource = readFileSync(new URL("../lib/lifecycleCopy.ts", import.meta.url), "utf8");
   const canvasSource = readFileSync(new URL("../components/CanvasRoom.tsx", import.meta.url), "utf8");
+  const modalsSource = readFileSync(new URL("../components/room/RoomModals.tsx", import.meta.url), "utf8");
+  const mutationsSource = readFileSync(new URL("../components/room/useRoomMutations.ts", import.meta.url), "utf8");
   const roomModelSource = readFileSync(new URL("../lib/canvasRoom.ts", import.meta.url), "utf8");
   assertTextIncludes(lifecycleSource, "Choose your display name", "First room profile copy");
   assertTextIncludes(lifecycleSource, "Enter room", "First room profile copy");
@@ -163,11 +165,11 @@ function assertFirstRoomProfileCopy() {
     "Room model privacy default",
   );
   assertTextIncludes(roomModelSource, 'visibility: room.visibility ?? "private"', "Room model privacy default");
-  assertTextIncludes(canvasSource, "Room Display Name Saved", "First room analytics copy");
-  assertTextIncludes(canvasSource, "Delete permanently", "First room data deletion");
-  assertTextIncludes(canvasSource, "?permanent=true", "First room data deletion");
+  assertTextIncludes(modalsSource, "Room Display Name Saved", "First room analytics copy");
+  assertTextIncludes(modalsSource, "Delete permanently", "First room data deletion");
+  assertTextIncludes(mutationsSource, "?permanent=true", "First room data deletion");
   assertTextIncludes(roomModelSource, "roomCapacityLimits", "Room document capacities");
-  assertTextExcludes(canvasSource, "Room Profile Saved", "First room analytics copy");
+  assertTextExcludes(modalsSource, "Room Profile Saved", "First room analytics copy");
 }
 
 function assertSmokeProtectsCurrentPositioning() {
@@ -215,6 +217,8 @@ function assertAnalyticsDoesNotStorePrivatePaths() {
 
 function assertLaunchFunnelEvents() {
   const canvasSource = readFileSync(new URL("../components/CanvasRoom.tsx", import.meta.url), "utf8");
+  const modalsSource = readFileSync(new URL("../components/room/RoomModals.tsx", import.meta.url), "utf8");
+  const mutationsSource = readFileSync(new URL("../components/room/useRoomMutations.ts", import.meta.url), "utf8");
   const dashboardSource = readFileSync(new URL("../components/RoomsDashboard.tsx", import.meta.url), "utf8");
   const landingSource = readFileSync(new URL("../components/LandingPage.tsx", import.meta.url), "utf8");
   const analyticsSource = readFileSync(new URL("../lib/productAnalytics.ts", import.meta.url), "utf8");
@@ -247,16 +251,20 @@ function assertLaunchFunnelEvents() {
     "Launch funnel dashboard events",
   );
   assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Opened"', "Launch funnel room events");
-  assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Display Name Saved"', "Launch funnel room events");
-  assertTextIncludes(canvasSource, '"Room First Card Created"', "Launch funnel room events");
+  assertTextIncludes(modalsSource, 'trackRoomActivationEvent("Room Display Name Saved"', "Launch funnel room events");
+  assertTextIncludes(mutationsSource, '"Room First Card Created"', "Launch funnel room events");
   // Deriving the activation step from an empty board silently killed it on the
   // seeded starters, which is most of the campaign traffic.
-  assertTextIncludes(canvasSource, "resolveFirstCardEventName(roomId", "Launch funnel activation step");
+  assertTextIncludes(mutationsSource, "resolveFirstCardEventName(roomId", "Launch funnel activation step");
   assertTextExcludes(canvasSource, "const isFirstCard = items.length === 0", "Launch funnel activation step");
-  assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Upload Completed"', "Launch funnel room events");
-  assertTextIncludes(canvasSource, 'trackProductEvent("Room Invite Message Copied"', "Launch funnel room events");
-  assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Comment Created"', "Launch funnel room events");
-  assertTextIncludes(canvasSource, 'trackRoomActivationEvent("Room Card Status Changed"', "Launch funnel room events");
+  assertTextIncludes(mutationsSource, 'trackRoomActivationEvent("Room Upload Completed"', "Launch funnel room events");
+  assertTextIncludes(mutationsSource, 'trackProductEvent("Room Invite Message Copied"', "Launch funnel room events");
+  assertTextIncludes(mutationsSource, 'trackRoomActivationEvent("Room Comment Created"', "Launch funnel room events");
+  assertTextIncludes(
+    mutationsSource,
+    'trackRoomActivationEvent("Room Card Status Changed"',
+    "Launch funnel room events",
+  );
   assertTextIncludes(canvasSource, 'trackProductEvent("Room Recap Copied"', "Launch funnel room events");
 }
 
@@ -335,6 +343,23 @@ async function assertStarterCreateContract(template, expected) {
   assert(cleanup.response.ok, `${template} starter cleanup returned ${cleanup.response.status}`);
 }
 
+async function assertAgentMcpContract() {
+  const unauthenticated = await request("/api/mcp", {
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    method: "POST",
+  });
+  assert(
+    unauthenticated.response.status === 401,
+    `MCP without an agent token must return 401, got ${unauthenticated.response.status}`,
+  );
+
+  const streamProbe = await request("/api/mcp");
+  assert(
+    streamProbe.response.status === 405,
+    `MCP GET must return 405 (stateless poll-based server), got ${streamProbe.response.status}`,
+  );
+}
+
 async function main() {
   let createdRoomId = "";
   let ownerToken = "";
@@ -350,6 +375,7 @@ async function main() {
     assertSourceDocsProtectCurrentPositioning();
     assertAnalyticsDoesNotStorePrivatePaths();
     assertLaunchFunnelEvents();
+    await assertAgentMcpContract();
 
     const healthResult = await request("/api/health");
     assert(healthResult.response.ok, `Health returned ${healthResult.response.status}`);
