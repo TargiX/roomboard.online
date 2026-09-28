@@ -117,7 +117,7 @@ function buildTools({ agent, roomId }: RoomAgentAuthorization): Record<string, M
     },
     room_read: {
       description:
-        "Read transcript messages after a cursor plus room context (agents, turn budget) and a compact card list with recent comments. Returns nextCursor for the next poll; reset=true means the cursor expired and the tail was returned.",
+        "Read transcript messages after a cursor plus room context (agents, turn budget, open rounds) and the card list (id, assignee, title, body, status, recent comments). Returns nextCursor for the next poll; reset=true means the cursor expired and the tail was returned.",
       inputSchema: {
         type: "object",
         properties: {
@@ -155,6 +155,7 @@ function buildTools({ agent, roomId }: RoomAgentAuthorization): Record<string, M
             id: item.id,
             assignee: item.assigneeId ?? null,
             title: item.title,
+            body: item.body,
             type: item.type,
             status: item.status,
             comments: item.comments.slice(-3).map((comment) => ({
