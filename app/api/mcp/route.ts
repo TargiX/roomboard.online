@@ -163,6 +163,10 @@ function buildTools({ agent, roomId }: RoomAgentAuthorization): Record<string, M
               body: comment.body,
               createdAt: comment.createdAt,
             })),
+            decisionSignals: (item.decisionSignals ?? []).map((signal) => ({
+              voter: signal.voter,
+              voterId: signal.voterId,
+            })),
           }));
         }
 
