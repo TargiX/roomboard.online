@@ -80,6 +80,10 @@ function getSafeLandingPath(pathname = "") {
   return "";
 }
 
+function isLandingViewPath(pathname = "") {
+  return pathname === "/" || pathname.startsWith("/for/");
+}
+
 export function sanitizeProductEventProperties(properties: ProductEventProperties = {}) {
   return Object.fromEntries(
     Object.entries(properties).filter(([key, value]) => {
@@ -145,6 +149,43 @@ function writeStoredCampaignAttribution(properties: ProductEventProperties) {
   } catch {
     // Campaign attribution is helpful, not required for the app to work.
   }
+}
+
+const landingViewSessionKey = "roomboard-landing-viewed";
+
+/**
+ * Top-of-funnel event: PostHog pageview capture is disabled for privacy, so
+ * organic landing visits leave zero analytics. Fires "Landing Viewed" once
+ * per browser session for the public landing surface only ("/" and "/for/*").
+ * Runs after campaign attribution so the stored attribution (if any) is
+ * already persisted and gets merged into the event properties.
+ */
+export function captureLandingView(context: ProductEventProperties = {}): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!isLandingViewPath(window.location.pathname)) {
+    return;
+  }
+
+  const safeLandingPath = getSafeLandingPath(window.location.pathname);
+  const properties = mergeAndSanitizeProductEventProperties(readStoredCampaignAttribution(), {
+    ...context,
+    ...(safeLandingPath ? { landingPath: safeLandingPath } : {}),
+  });
+
+  try {
+    if (window.sessionStorage.getItem(landingViewSessionKey)) {
+      return;
+    }
+
+    window.sessionStorage.setItem(landingViewSessionKey, "1");
+  } catch {
+    // Session de-duping is optional; still send the event without it.
+  }
+
+  sendProductEvent("Landing Viewed", properties);
 }
 
 export function captureCampaignAttribution(context: ProductEventProperties = {}): ProductEventProperties {

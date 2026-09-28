@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
   captureCampaignAttribution,
+  captureLandingView,
   mergeAndSanitizeProductEventProperties,
   sanitizeProductEventProperties,
   setProductEventSinkForTests,
@@ -271,6 +272,130 @@ describe("captureCampaignAttribution", () => {
 
     try {
       captureCampaignAttribution({ landingStarter: "blank" });
+
+      assert.deepEqual(analyticsEvents, []);
+    } finally {
+      browser.restore();
+    }
+  });
+});
+
+describe("captureLandingView", () => {
+  it("fires once per session on the organic landing with stored attribution merged in", () => {
+    withAnalyticsEnv(true);
+    const analyticsEvents: CapturedAnalyticsEvent[] = [];
+    setProductEventSinkForTests((name, data) => analyticsEvents.push({ name, data }));
+    const browser = withMockWindow("https://www.roomboard.online/?utm_source=linkedin&utm_campaign=launch");
+
+    try {
+      captureCampaignAttribution({ landingIntent: "landing-review", landingStarter: "landing-review" });
+      captureLandingView({ landingIntent: "landing-review", landingStarter: "landing-review" });
+      captureLandingView({ landingIntent: "landing-review", landingStarter: "landing-review" });
+
+      assert.deepEqual(analyticsEvents, [
+        {
+          data: {
+            campaignName: "launch",
+            campaignSource: "linkedin",
+            landingIntent: "landing-review",
+            landingPath: "/",
+            landingStarter: "landing-review",
+          },
+          name: "Campaign Attributed",
+        },
+        {
+          data: {
+            campaignName: "launch",
+            campaignSource: "linkedin",
+            landingIntent: "landing-review",
+            landingPath: "/",
+            landingStarter: "landing-review",
+          },
+          name: "Landing Viewed",
+        },
+      ]);
+    } finally {
+      browser.restore();
+    }
+  });
+
+  it("fires on the agent-review entry path", () => {
+    withAnalyticsEnv(true);
+    const analyticsEvents: CapturedAnalyticsEvent[] = [];
+    setProductEventSinkForTests((name, data) => analyticsEvents.push({ name, data }));
+    const browser = withMockWindow("https://www.roomboard.online/for/agent-review");
+
+    try {
+      captureLandingView({ landingStarter: "agent-review" });
+
+      assert.deepEqual(analyticsEvents, [
+        {
+          data: {
+            landingPath: "/for/agent-review",
+            landingStarter: "agent-review",
+          },
+          name: "Landing Viewed",
+        },
+      ]);
+    } finally {
+      browser.restore();
+    }
+  });
+
+  it("never fires on private room paths", () => {
+    withAnalyticsEnv(true);
+    const analyticsEvents: CapturedAnalyticsEvent[] = [];
+    setProductEventSinkForTests((name, data) => analyticsEvents.push({ name, data }));
+    const browser = withMockWindow("https://www.roomboard.online/rooms/private-client-room");
+
+    try {
+      captureLandingView({ landingStarter: "blank" });
+
+      assert.deepEqual(analyticsEvents, []);
+    } finally {
+      browser.restore();
+    }
+  });
+
+  it("still sends when sessionStorage is unavailable", () => {
+    withAnalyticsEnv(true);
+    const analyticsEvents: CapturedAnalyticsEvent[] = [];
+    setProductEventSinkForTests((name, data) => analyticsEvents.push({ name, data }));
+    const browser = withMockWindow("https://www.roomboard.online/for/landing-review");
+
+    try {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+          localStorage: browser.localStorage,
+          sessionStorage: {
+            getItem() {
+              throw new Error("unavailable");
+            },
+            setItem() {
+              throw new Error("unavailable");
+            },
+          },
+          location: { pathname: "/for/landing-review", search: "" },
+        },
+      });
+      captureLandingView();
+
+      assert.equal(analyticsEvents.length, 1);
+      assert.equal(analyticsEvents[0]?.name, "Landing Viewed");
+    } finally {
+      browser.restore();
+    }
+  });
+
+  it("sends no events when PostHog env is not configured", () => {
+    withAnalyticsEnv(false);
+    const analyticsEvents: CapturedAnalyticsEvent[] = [];
+    setProductEventSinkForTests((name, data) => analyticsEvents.push({ name, data }));
+    const browser = withMockWindow("https://www.roomboard.online/");
+
+    try {
+      captureLandingView();
 
       assert.deepEqual(analyticsEvents, []);
     } finally {
