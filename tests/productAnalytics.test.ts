@@ -173,7 +173,12 @@ describe("captureCampaignAttribution", () => {
         landingPath: "/for/landing-review",
         landingStarter: "landing-review",
       });
-      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify(attribution));
+      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify({
+        campaignContent: "founder_dm",
+        campaignMedium: "direct",
+        campaignName: "landing_review",
+        campaignSource: "first_batch",
+      }));
       assert.deepEqual(analyticsEvents, [
         {
           data: attribution,
@@ -210,7 +215,7 @@ describe("captureCampaignAttribution", () => {
     }
   });
 
-  it("keeps stored attribution when later pages have no campaign params", () => {
+  it("keeps stored campaign attribution without landing fields when later pages have no campaign params", () => {
     const browser = withMockWindow("https://www.roomboard.online/for/moodboard?source=linkedin&campaign=moodboard");
 
     try {
@@ -228,7 +233,17 @@ describe("captureCampaignAttribution", () => {
         },
       });
 
-      assert.deepEqual(captureCampaignAttribution(), firstAttribution);
+      assert.deepEqual(captureCampaignAttribution(), {
+        campaignName: "moodboard",
+        campaignSource: "linkedin",
+      });
+      assert.deepEqual(
+        JSON.parse(browser.localStorage.getItem("roomboard-campaign-attribution") ?? "{}"),
+        {
+          campaignName: "moodboard",
+          campaignSource: "linkedin",
+        },
+      );
     } finally {
       browser.restore();
     }
@@ -250,7 +265,10 @@ describe("captureCampaignAttribution", () => {
         campaignSource: "first_batch",
         landingStarter: "blank",
       });
-      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify(attribution));
+      assert.equal(browser.localStorage.getItem("roomboard-campaign-attribution"), JSON.stringify({
+        campaignName: "landing_review",
+        campaignSource: "first_batch",
+      }));
       assert.deepEqual(analyticsEvents, [
         {
           data: attribution,

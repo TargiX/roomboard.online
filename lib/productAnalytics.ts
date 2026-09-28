@@ -64,6 +64,16 @@ const campaignParamMap = {
   ref: "ref",
 } as const;
 
+// Only these fields are durable attribution; landing context is per-visit and
+// must not be persisted into campaign storage (it goes stale on later visits).
+const campaignPropertyNames = new Set(Object.keys(campaignParamMap));
+
+function campaignAttributionOnly(properties: ProductEventProperties): ProductEventProperties {
+  return Object.fromEntries(
+    Object.entries(properties).filter(([key]) => campaignPropertyNames.has(key)),
+  );
+}
+
 function cleanAnalyticsValue(value: string | null) {
   return value?.trim().slice(0, 96) || "";
 }
@@ -133,7 +143,11 @@ function readStoredCampaignAttribution(): ProductEventProperties {
   }
 
   try {
-    return JSON.parse(window.localStorage.getItem(campaignStorageKey) ?? "{}") as ProductEventProperties;
+    const stored = JSON.parse(
+      window.localStorage.getItem(campaignStorageKey) ?? "{}",
+    ) as ProductEventProperties;
+
+    return campaignAttributionOnly(stored);
   } catch {
     return {};
   }
@@ -242,7 +256,9 @@ export function captureCampaignAttribution(context: ProductEventProperties = {})
     ...contextWithPath,
   };
 
-  writeStoredCampaignAttribution(attribution);
+  // Persist durable campaign attribution only; landing context is per-visit
+  // and must not go stale in campaign storage.
+  writeStoredCampaignAttribution(campaignAttributionOnly(attribution));
 
   if (hasCampaignParams) {
     try {
