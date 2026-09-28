@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { RoomItemStatus, RoomSummary } from "@/lib/canvasRoom";
 import { LandingLower } from "./LandingLower";
 import { THERMAL_PALETTE_TEAL, ThermalAura } from "./ThermalAura";
-import { captureCampaignAttribution, trackProductEvent } from "@/lib/productAnalytics";
+import { captureCampaignAttribution, captureLandingView, trackProductEvent } from "@/lib/productAnalytics";
 import { prewarmRealtimeEndpoint } from "@/lib/realtimePrewarm";
 import { buildRoomPathWithHashToken, normalizeRoomRouteFromInput } from "@/lib/roomLinks";
 import { readInviteTokens, readOwnerTokens, writeOwnerToken } from "@/lib/roomTokens";
@@ -900,6 +900,7 @@ export function LandingPage({ entryIntent = "general", initialStarter = "landing
       landingIntent: entryIntent,
       landingStarter: initialStarter,
     });
+    captureLandingView({ landingIntent: entryIntent, landingStarter: initialStarter });
   }, [entryIntent, initialStarter]);
 
   useEffect(() => {

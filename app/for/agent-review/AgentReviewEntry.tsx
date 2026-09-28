@@ -6,7 +6,7 @@ import { ArrowRight, Bot, Lock, MessageSquare } from "lucide-react";
 import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
 import { writeOwnerToken } from "@/lib/roomTokens";
 import { prewarmRealtimeEndpoint } from "@/lib/realtimePrewarm";
-import { captureCampaignAttribution, trackProductEvent } from "@/lib/productAnalytics";
+import { captureCampaignAttribution, captureLandingView, trackProductEvent } from "@/lib/productAnalytics";
 
 const stepCopy = [
   {
@@ -30,6 +30,7 @@ export function AgentReviewEntry() {
 
   useEffect(() => {
     captureCampaignAttribution({ landingStarter: "agent-review" });
+    captureLandingView({ landingStarter: "agent-review" });
   }, []);
 
   useEffect(() => {
