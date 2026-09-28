@@ -45,6 +45,12 @@ export async function GET(request: Request, { params }: RoomRecapRouteProps) {
     const snapshot = await getRoomSnapshot(roomId, getRoomCredentials(request));
 
     if (!snapshot) {
+      // getRoomSnapshot returns null both for a raced room deletion and for
+      // denied access; recheck so a room that disappeared between the two
+      // lookups answers 404 like every other room route, not "locked".
+      if (!(await getRoomSummary(roomId))) {
+        return NextResponse.json({ error: "Room not found." }, { status: 404 });
+      }
       return NextResponse.json({ error: "Room is locked." }, { status: 403 });
     }
 
