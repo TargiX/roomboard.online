@@ -75,6 +75,17 @@ let desktop;
 try {
   desktop = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await desktop.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
+  // Seed the local collaborator profile before any navigation. The profile
+  // modal's mount races the canvas on slow deployments; a missed join leaves
+  // the profile incomplete so later stray clicks reopen the modal and swallow
+  // clicks. This gate asserts room flows, not the join UI (the realtime smoke
+  // scripts seed profiles the same way), so pre-seeding removes the race.
+  await desktop.addInitScript(() => {
+    localStorage.setItem(
+      "canvas-room-user",
+      JSON.stringify({ id: "smoke-desktop", name: "Smoke Desktop", color: "#0ea5e9", profileComplete: true }),
+    );
+  });
   desktop.on("console", (message) => {
     console.log(`[Desktop Console] [${message.type().toUpperCase()}] ${message.text()}`);
     if (message.type() === "error" && !isExpectedConsoleNoise(message.text())) {
@@ -192,7 +203,6 @@ try {
   }
 
   await desktop.evaluate(() => {
-    localStorage.removeItem("canvas-room-user");
     localStorage.removeItem("roomboard-owner-tokens");
     localStorage.removeItem("roomboard-invite-tokens");
   });
@@ -226,7 +236,6 @@ try {
     { timeout: 15000 },
   );
   await desktop.evaluate(() => {
-    localStorage.removeItem("canvas-room-user");
     localStorage.removeItem("roomboard-owner-tokens");
     localStorage.removeItem("roomboard-invite-tokens");
   });
@@ -253,9 +262,18 @@ try {
       response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
     { timeout: 60000 },
   );
-  // Retry the banner click: a desynced coordinate click can land on the canvas
-  // (a harmless deselect once the profile is complete) instead of the button.
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  // Retry the banner click: on slow deployments the profile modal can mount
+  // after waitForRoomReady's first check (snapshot latency flips the
+  // canvas/modal race), and a desynced coordinate click can land on the
+  // canvas instead of the button. Re-join on every attempt and never
+  // force-click while a modal is up (a forced click on the scrim would close
+  // it without joining).
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await completeJoinIfNeeded(desktop, "Smoke Sample");
+    if ((await desktop.locator(".rb-modal-scrim").count()) > 0) {
+      await desktop.waitForTimeout(1000);
+      continue;
+    }
     const bannerButton = desktop.getByRole("button", { name: /use this launch workflow/i });
     try {
       await bannerButton.click({ timeout: 3000 });
@@ -787,6 +805,12 @@ try {
   }
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await mobile.addInitScript(() => {
+    localStorage.setItem(
+      "canvas-room-user",
+      JSON.stringify({ id: "smoke-mobile", name: "Smoke Mobile", color: "#10b981", profileComplete: true }),
+    );
+  });
   mobile.on("console", (message) => {
     if (message.type() === "error" && !isExpectedConsoleNoise(message.text())) {
       errors.push(message.text());
