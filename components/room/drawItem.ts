@@ -113,6 +113,7 @@ export type DrawItemContext = {
 
   // Helpers used by the body (kept in CanvasRoom to avoid widening scope)
   getInitials: (name: string) => string;
+  getAssignee: (item: RoomItem) => { color: string; name: string } | null;
   pixiFont: string;
 };
 
@@ -159,6 +160,7 @@ export function createDrawItem(ctx: DrawItemContext) {
     startConnectionDrag,
     startOrCompleteConnection,
     getInitials,
+    getAssignee,
     pixiFont,
   } = ctx;
 
@@ -334,6 +336,52 @@ export function createDrawItem(ctx: DrawItemContext) {
     statusPill.position.set(cardPad + 58, 11);
     statusText.anchor.set(0.5);
     statusText.position.set(cardPad + 58 + statusPillWidth / 2, 20);
+
+    const assignee = getAssignee(item);
+    let assigneePill: Graphics | null = null;
+    let assigneeDot: Graphics | null = null;
+    let assigneeLabel: Text | null = null;
+
+    if (assignee) {
+      // Header chip next to the status pill: dot-only on narrow cards, name
+      // included once there is room, skipped entirely when it would collide
+      // with the card id label on the right.
+      const withName = cardWidth >= 340;
+      assigneeLabel = withName
+        ? new Text({
+            resolution: textResolutionRef.current,
+            text: assignee.name.slice(0, 12).toUpperCase(),
+            style: {
+              fill: assignee.color,
+              fontFamily: pixiMonoFont,
+              fontSize: 9,
+              fontWeight: "700",
+            },
+          })
+        : null;
+      const assigneePillWidth = (assigneeLabel?.width ?? 0) + (assigneeLabel ? 24 : 16);
+      const assigneeX = cardPad + 58 + statusPillWidth + 6;
+
+      if (assigneeX + assigneePillWidth <= cardWidth - 58) {
+        assigneePill = new Graphics();
+        assigneePill
+          .roundRect(0, 0, assigneePillWidth, 18, 999)
+          .fill({ alpha: theme === "light" ? 0.12 : 0.16, color: toColor(assignee.color) });
+        assigneePill
+          .roundRect(0, 0, assigneePillWidth, 18, 999)
+          .stroke({ alpha: theme === "light" ? 0.24 : 0.34, color: toColor(assignee.color), width: 1 });
+        assigneePill.position.set(assigneeX, 11);
+        assigneeDot = new Graphics();
+        assigneeDot.circle(8, 9, 3).fill({ color: toColor(assignee.color) });
+        assigneeDot.position.set(assigneeX, 11);
+        if (assigneeLabel) {
+          assigneeLabel.position.set(assigneeX + 15, 14);
+        }
+      } else {
+        assigneeLabel?.destroy();
+        assigneeLabel = null;
+      }
+    }
     idText.position.set(cardWidth - 52, 14);
     titleText.position.set(cardPad, item.type === "image" ? imageInfoY + 11 : headerHeight + 12);
 
@@ -420,6 +468,13 @@ export function createDrawItem(ctx: DrawItemContext) {
       authorText,
       handleLayer,
     );
+
+    if (assigneePill && assigneeDot) {
+      root.addChild(assigneePill, assigneeDot);
+      if (assigneeLabel) {
+        root.addChild(assigneeLabel);
+      }
+    }
 
     const connectionHandles = (
       [
