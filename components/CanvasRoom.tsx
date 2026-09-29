@@ -2342,7 +2342,13 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     ticker?.add(syncCursorOverlay);
 
     return () => {
-      ticker?.remove(syncCursorOverlay);
+      // Detach only while this ticker still owns the scene. On unmount and on
+      // a scene reboot usePixiScene destroys the app first; Ticker.remove on a
+      // destroyed ticker walks a null linked-list head and throws, which took
+      // the whole React tree down to a blank page mid-navigation.
+      if (ticker && currentAppRef.current?.ticker === ticker) {
+        ticker.remove(syncCursorOverlay);
+      }
     };
   }, [presence, sceneReady]);
 
