@@ -638,15 +638,40 @@ try {
     undefined,
     { timeout: 15000 },
   );
+  // The recap button only exists in the board-state inspector, and both the
+  // close-inspector and generate-recap clicks are coordinate clicks that can
+  // miss under the headless compositor desync. Verify the target surface
+  // between attempts instead of trusting a single click.
   const closeInspectorButton = desktop.getByRole("button", { name: /close inspector/i });
-  if ((await closeInspectorButton.count()) > 0 && (await closeInspectorButton.isEnabled())) {
-    await closeInspectorButton.click();
+  const generateRecapButton = desktop.getByRole("button", { name: /generate recap/i });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if ((await generateRecapButton.count()) > 0) {
+      break;
+    }
+    if ((await closeInspectorButton.count()) > 0 && (await closeInspectorButton.isEnabled())) {
+      await closeInspectorButton.click({ force: true }).catch(() => {});
+    }
+    await desktop.waitForTimeout(800);
   }
   const recapRequest = desktop.waitForResponse(
     (response) => response.url().includes(`/api/rooms/${room.id}/recap`) && response.status() === 200,
-    { timeout: 30000 },
+    { timeout: 45000 },
   );
-  await desktop.getByRole("button", { name: /generate recap/i }).click();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await generateRecapButton.click({ timeout: 3000 });
+    } catch {
+      await generateRecapButton.click({ force: true, timeout: 3000 }).catch(() => {});
+    }
+    const settled = await Promise.race([
+      recapRequest.then(
+        () => true,
+        () => true,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
+    ]);
+    if (settled) break;
+  }
   await recapRequest;
 
   const recapHeaders = { "X-Room-Owner-Token": ownerToken };
