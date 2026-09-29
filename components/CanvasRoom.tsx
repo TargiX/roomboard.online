@@ -1046,6 +1046,17 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const roomApi = `/api/rooms/${roomId}`;
   const turnBudget = useMemo(() => getAgentTurnBudgetState(roomMessages), [roomMessages]);
+  const agentById = useMemo(() => new Map(roomAgents.map((agent) => [agent.id, agent])), [roomAgents]);
+  const getAssignee = useCallback(
+    (item: RoomItem): { color: string; name: string } | null => {
+      if (!item.assigneeId?.startsWith("agent:")) {
+        return null;
+      }
+      const agent = agentById.get(item.assigneeId.slice("agent:".length));
+      return agent ? { color: agent.color, name: agent.name } : null;
+    },
+    [agentById],
+  );
   const roundState = useMemo(
     () => (selected ? getRoomReviewRoundState(roomRounds, items, roomAgents, selected.id) : null),
     [items, roomAgents, roomRounds, selected],
@@ -2127,6 +2138,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       startConnectionDrag,
       startOrCompleteConnection,
       getInitials,
+      getAssignee,
       pixiFont,
     });
 
@@ -2134,7 +2146,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
       for (const item of visibleItems) {
         const existing = scene.itemMap.get(item.id);
         if (existing) {
-          const propsKey = `${item.title}|${item.body}|${item.status}|${item.color}|${item.imageUrl ?? ""}|${item.width}|${item.height}|${item.comments.length}|${item.author ?? ""}`;
+          const propsKey = `${item.title}|${item.body}|${item.status}|${item.color}|${item.imageUrl ?? ""}|${item.width}|${item.height}|${item.comments.length}|${item.author ?? ""}|${item.assigneeId ?? ""}`;
           const prevProps = itemPropsRef.current.get(item.id);
           if (prevProps !== propsKey) {
             const fns = itemTickersRef.current.get(item.id);
@@ -2278,6 +2290,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     };
   }, [
     canEditRoom,
+    getAssignee,
     visibleItems,
     visibleConnections,
     publishBoardEvent,
