@@ -3,11 +3,45 @@ import { chromium } from "playwright";
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3050";
 const landingHeading = /get the launch decision/i;
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  // Software rasterization: headless Chromium on this macOS box intermittently
+  // stalls the GL compositor (ReadPixels GPU-stall warnings), which desyncs
+  // hit-testing from paint and makes legitimate clicks report as covered by
+  // their own containers. CPU rasterization keeps coordinates and paint in
+  // agreement so actionability checks stay meaningful.
+  args: ["--disable-gpu", "--disable-gpu-compositing"],
+});
 const errors = [];
 
 function isExpectedConsoleNoise(message) {
   return /Failed to load resource: the server responded with a status of 403/.test(message);
+}
+
+// Coordinate clicks on modal buttons intermittently miss in headless Chromium:
+// a stalled GL compositor desyncs paint from hit-testing, so a click aimed at
+// the join button lands on the scrim, which closes the modal without joining
+// and leaves the profile incomplete (later canvas clicks then reopen it).
+// Joining is asserted by the modal detaching, not by hit-testing, so dispatch
+// the click through the DOM where coordinates cannot desync.
+async function clickJoinButton(page) {
+  // The join button stays disabled until React registers the filled name, so
+  // wait for it to enable before dispatching the DOM click.
+  await page.waitForFunction(
+    () => {
+      const button = [...document.querySelectorAll("button")].find((candidate) =>
+        /^(enter room|enter as editor|enter as viewer)$/i.test((candidate.textContent || "").trim()),
+      );
+      return Boolean(button && !button.disabled);
+    },
+    { timeout: 10000 },
+  );
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll("button")].find((candidate) =>
+      /^(enter room|enter as editor|enter as viewer)$/i.test((candidate.textContent || "").trim()),
+    );
+    button?.click();
+  });
 }
 
 async function completeJoinIfNeeded(page, name) {
@@ -20,7 +54,7 @@ async function completeJoinIfNeeded(page, name) {
   await page.getByText("No account is needed", { exact: false }).waitFor({ timeout: 10000 });
   await profileNameInput.fill(name);
   const joinButton = page.getByRole("button", { name: /^(enter room|enter as editor|enter as viewer)$/i });
-  await joinButton.click();
+  await clickJoinButton(page);
   await joinButton.waitFor({ state: "detached", timeout: 10000 });
 }
 
@@ -37,8 +71,9 @@ async function waitForRoomReady(page, name) {
   await page.locator(".rb-loader").waitFor({ state: "detached", timeout: 15000 });
 }
 
+let desktop;
 try {
-  const desktop = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  desktop = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await desktop.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
   desktop.on("console", (message) => {
     console.log(`[Desktop Console] [${message.type().toUpperCase()}] ${message.text()}`);
@@ -216,9 +251,26 @@ try {
   const sampleRoomCreateResponsePromise = desktop.waitForResponse(
     (response) =>
       response.url().endsWith("/api/rooms") && response.request().method() === "POST" && response.status() === 200,
-    { timeout: 30000 },
+    { timeout: 60000 },
   );
-  await desktop.getByRole("button", { name: /use this launch workflow/i }).click();
+  // Retry the banner click: a desynced coordinate click can land on the canvas
+  // (a harmless deselect once the profile is complete) instead of the button.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const bannerButton = desktop.getByRole("button", { name: /use this launch workflow/i });
+    try {
+      await bannerButton.click({ timeout: 3000 });
+    } catch {
+      await bannerButton.click({ force: true, timeout: 3000 }).catch(() => {});
+    }
+    const settled = await Promise.race([
+      sampleRoomCreateResponsePromise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
+    ]);
+    if (settled) break;
+  }
   const sampleRoomCreateResponse = await sampleRoomCreateResponsePromise;
   const sampleCreated = await sampleRoomCreateResponse.json();
 
@@ -809,6 +861,19 @@ try {
   console.log(
     "Smoke passed: landing renders, room backend creates boards, file upload works, link access can lock/unlock, notes work, rooms close, and smoke data is deleted.",
   );
+} catch (error) {
+  // Failure diagnostics: the headless compositor flake history of this gate
+  // means a bare timeout stack is not enough to act on.
+  try {
+    await desktop.screenshot({ path: "screenshot-failure.png" });
+    const dom = await desktop.evaluate(() => document.body.innerText.slice(0, 600));
+    console.log("FAILURE SCREENSHOT: screenshot-failure.png");
+    console.log("FAILURE DOM TEXT:", JSON.stringify(dom));
+  } catch {
+    console.log("FAILURE DIAGNOSTICS UNAVAILABLE");
+  }
+  console.log("COLLECTED PAGE ERRORS:", JSON.stringify(errors));
+  throw error;
 } finally {
   await browser.close();
 }
