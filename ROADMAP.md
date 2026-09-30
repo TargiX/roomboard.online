@@ -54,7 +54,7 @@ A full-stack review of the canvas, realtime layer, API surface, and infra. What 
 
 ### Remaining debt (priority order)
 
-1. **CanvasRoom remains the largest file** (~4.2K lines) but is now mostly orchestration: state, effects, and the JSX shell. Further extraction has diminishing returns; the next meaningful split would be the mutation/action layer (`publishBoardEvent`, `handleDeleteItem`, `updateItemStatus`, comment handlers) into a `useRoomActions` hook.
+1. **CanvasRoom remains the largest file** (~3.2K lines after the `useRoomActions` extraction) but is now mostly orchestration: state, effects, and the JSX shell. The mutation/action layer now lives in `useRoomMutations` and `useRoomActions`; further extraction has diminishing returns.
 2. **Render free-plan caveats.** Spin-down after 15min idle → >60s cold starts vs 45s join timeout; single-instance PubSub/Presence means scaling past 1 instance silently splits presence.
 3. **Supabase rate-limit function needs deploying.** `roomboard_rate_limit_hit` ships in `supabase/roomboard-schema.sql`; re-run the schema in the prod project SQL editor. Until then `checkRateLimitDistributed` silently falls back to in-memory (fail-open).
 
