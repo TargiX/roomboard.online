@@ -55,7 +55,7 @@ A full-stack review of the canvas, realtime layer, API surface, and infra. What 
 
 1. **CanvasRoom remains the largest file** (~4.2K lines) but is now mostly orchestration: state, effects, and the JSX shell. Further extraction has diminishing returns; the next meaningful split would be the mutation/action layer (`publishBoardEvent`, `handleDeleteItem`, `updateItemStatus`, comment handlers) into a `useRoomActions` hook.
 2. **Render free-plan caveats.** Spin-down after 15min idle → >60s cold starts vs 45s join timeout; single-instance PubSub/Presence means scaling past 1 instance silently splits presence.
-3. **Supabase rate-limit function needs deploying.** `roomboard_rate_limit_hit` ships in `supabase/roomboard-schema.sql`; re-run the schema in the prod project SQL editor. Until then `checkRateLimitDistributed` silently falls back to in-memory (fail-open).
+3. **Supabase rate-limit function deployed (resolved 2026-09-30).** Applied as tracked migration `20260930000000_distributed_rate_limit` through the Management API (`supabase db query --linked`, no DB password required) and recorded in `supabase_migrations.schema_migrations`. Verified live: production API calls accumulate buckets in `public.roomboard_rate_limits`, so `checkRateLimitDistributed` holds across serverless instances instead of failing open to in-memory.
 
 ## Milestone 1: Showcase v1 - reliable product preview
 
