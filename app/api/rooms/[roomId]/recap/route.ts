@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildRoomRecap, getRoomSnapshot, getRoomSummary, type RoomCredentials } from "@/lib/canvasRoom";
+import { recapRouteErrorContract } from "@/lib/recapRouteErrors";
 
 export const dynamic = "force-dynamic";
 
@@ -32,33 +33,41 @@ function toExportFilename(roomName: string) {
 }
 
 export async function GET(request: Request, { params }: RoomRecapRouteProps) {
-  const { roomId } = await params;
-  const url = new URL(request.url);
-  const room = await getRoomSummary(roomId);
+  return recapRouteErrorContract(async () => {
+    const { roomId } = await params;
+    const url = new URL(request.url);
+    const room = await getRoomSummary(roomId);
 
-  if (!room) {
-    return NextResponse.json({ error: "Room not found." }, { status: 404 });
-  }
+    if (!room) {
+      return NextResponse.json({ error: "Room not found." }, { status: 404 });
+    }
 
-  const snapshot = await getRoomSnapshot(roomId, getRoomCredentials(request));
+    const snapshot = await getRoomSnapshot(roomId, getRoomCredentials(request));
 
-  if (!snapshot) {
-    return NextResponse.json({ error: "Room is locked." }, { status: 403 });
-  }
+    if (!snapshot) {
+      // getRoomSnapshot returns null both for a raced room deletion and for
+      // denied access; recheck so a room that disappeared between the two
+      // lookups answers 404 like every other room route, not "locked".
+      if (!(await getRoomSummary(roomId))) {
+        return NextResponse.json({ error: "Room not found." }, { status: 404 });
+      }
+      return NextResponse.json({ error: "Room is locked." }, { status: 403 });
+    }
 
-  const recap = buildRoomRecap(snapshot);
-  const wantsMarkdown =
-    url.searchParams.get("format") === "markdown" || (request.headers.get("accept") ?? "").includes("text/markdown");
+    const recap = buildRoomRecap(snapshot);
+    const wantsMarkdown =
+      url.searchParams.get("format") === "markdown" || (request.headers.get("accept") ?? "").includes("text/markdown");
 
-  if (wantsMarkdown) {
-    return new Response(recap.markdown, {
-      headers: {
-        "Cache-Control": "no-store",
-        "Content-Disposition": `attachment; filename="${toExportFilename(recap.roomName)}"`,
-        "Content-Type": "text/markdown; charset=utf-8",
-      },
-    });
-  }
+    if (wantsMarkdown) {
+      return new Response(recap.markdown, {
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Disposition": `attachment; filename="${toExportFilename(recap.roomName)}"`,
+          "Content-Type": "text/markdown; charset=utf-8",
+        },
+      });
+    }
 
-  return NextResponse.json({ recap });
+    return NextResponse.json({ recap });
+  });
 }
