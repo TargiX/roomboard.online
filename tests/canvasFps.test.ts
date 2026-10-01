@@ -50,6 +50,28 @@ describe("canvasFps", () => {
     assert.doesNotThrow(() => saveStoredCanvasFpsMode("half", undefined));
   });
 
+  it("falls back to vsync when the storage getter throws", () => {
+    const storage = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {},
+    };
+
+    assert.equal(getStoredCanvasFpsMode(storage), "vsync");
+  });
+
+  it("swallows save failures from a throwing storage", () => {
+    const storage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    };
+
+    assert.doesNotThrow(() => saveStoredCanvasFpsMode("half", storage));
+  });
+
   it("validates mode values", () => {
     assert.equal(isCanvasFpsMode("half"), true);
     assert.equal(isCanvasFpsMode("vsync"), true);

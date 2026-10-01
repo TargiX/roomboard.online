@@ -24,14 +24,23 @@ function defaultStorage(): CanvasFpsStorage | undefined {
     return undefined;
   }
 
-  return window.localStorage;
+  try {
+    return window.localStorage;
+  } catch {
+    // Privacy modes can block storage access entirely.
+    return undefined;
+  }
 }
 
 /** Reads the persisted FPS mode; unknown or missing values fall back to "vsync". */
 export function getStoredCanvasFpsMode(storage: CanvasFpsStorage | undefined = defaultStorage()): CanvasFpsMode {
-  const raw = storage?.getItem(CANVAS_FPS_STORAGE_KEY);
+  try {
+    const raw = storage?.getItem(CANVAS_FPS_STORAGE_KEY);
 
-  return isCanvasFpsMode(raw) ? raw : "vsync";
+    return isCanvasFpsMode(raw) ? raw : "vsync";
+  } catch {
+    return "vsync";
+  }
 }
 
 /** Persists the FPS mode; storage failures are ignored (preference is optional). */
