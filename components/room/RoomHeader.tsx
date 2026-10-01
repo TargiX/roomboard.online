@@ -24,6 +24,7 @@ import type { PresenceSnapshot } from "@/lib/presence";
 import { buildRoomPathWithHashToken } from "@/lib/roomLinks";
 import { trackProductEvent } from "@/lib/productAnalytics";
 import { writeOwnerToken } from "@/lib/roomTokens";
+import type { CanvasFpsMode } from "@/lib/canvasFps";
 
 export type RoomHeaderProps = {
   // UI state + setters
@@ -69,6 +70,9 @@ export type RoomHeaderProps = {
   requestToggleRoomAccess: () => void;
   togglePublicSnapshot: () => Promise<void> | void;
   toggleTheme: () => void;
+  /** Current canvas FPS mode; shown on the battery-saver menu toggle. */
+  canvasFpsMode: CanvasFpsMode;
+  toggleCanvasFpsMode: () => void;
 
   // Static
   roomCanvasSupportMailto: string;
@@ -130,6 +134,8 @@ export function RoomHeader({
   requestToggleRoomAccess,
   togglePublicSnapshot,
   toggleTheme,
+  canvasFpsMode,
+  toggleCanvasFpsMode,
   roomCanvasSupportMailto,
   getRoleLabel,
   getInitials,
@@ -228,6 +234,17 @@ export function RoomHeader({
                     Stop public snapshot
                   </button>
                 )}
+                <button
+                  className="rb-dropdown-item"
+                  onClick={() => {
+                    setShowMainMenu(false);
+                    toggleCanvasFpsMode();
+                  }}
+                  style={dropdownItemStyle}
+                  type="button"
+                >
+                  {canvasFpsMode === "half" ? "Smooth canvas: ON (30 FPS)" : "Battery saver: canvas at 30 FPS"}
+                </button>
                 <button
                   className="rb-dropdown-item"
                   onClick={async () => {
