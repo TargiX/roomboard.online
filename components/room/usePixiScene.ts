@@ -2,6 +2,7 @@
 
 import { useEffect, type MutableRefObject } from "react";
 import { Application, Container, Graphics } from "pixi.js";
+import { applyCanvasFpsMode, getStoredCanvasFpsMode, type CanvasFpsMode } from "@/lib/canvasFps";
 import { destroyPixiApp, setWorldZoom, wheelZoomInStep, wheelZoomOutStep, type PixiScene } from "@/lib/pixiScene";
 
 type UsePixiSceneArgs = {
@@ -14,6 +15,8 @@ type UsePixiSceneArgs = {
   setZoomPercent: (percent: number) => void;
   syncGridTransform: (scene: Pick<PixiScene, "world">) => void;
   syncTextResolution: (scale: number) => void;
+  /** Current canvas FPS mode; re-applying it re-caps the render ticker. */
+  fpsMode?: CanvasFpsMode;
 };
 
 /**
@@ -31,6 +34,7 @@ export function usePixiScene({
   setZoomPercent,
   syncGridTransform,
   syncTextResolution,
+  fpsMode,
 }: UsePixiSceneArgs) {
   useEffect(() => {
     const host = hostRef.current;
@@ -88,6 +92,7 @@ export function usePixiScene({
       currentAppRef.current = app;
       syncGridTransform({ world });
       setSceneReady(true);
+      applyCanvasFpsMode(app.ticker, getStoredCanvasFpsMode());
 
       app.stage.eventMode = "static";
       app.stage.hitArea = app.screen;
@@ -166,4 +171,14 @@ export function usePixiScene({
     syncGridTransform,
     syncTextResolution,
   ]);
+
+  useEffect(() => {
+    const app = currentAppRef.current;
+
+    // Re-cap the render ticker in place; a scene reboot for an FPS toggle
+    // would tear down and re-init the whole Pixi app (position/reset flicker).
+    if (app) {
+      applyCanvasFpsMode(app.ticker, fpsMode ?? getStoredCanvasFpsMode());
+    }
+  }, [currentAppRef, fpsMode]);
 }

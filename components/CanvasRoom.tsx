@@ -57,6 +57,7 @@ import type {
   RoomVisibility,
 } from "@/lib/canvasRoom";
 import { syncCursorsToPresence } from "@/lib/cursorOverlay";
+import { getStoredCanvasFpsMode, saveStoredCanvasFpsMode, type CanvasFpsMode } from "@/lib/canvasFps";
 import { dismissRoomLaunchGuide, isRoomLaunchGuideDismissed } from "@/lib/launchGuideState";
 import { getLifecycleCopy, getProfileJoinCopy } from "@/lib/lifecycleCopy";
 import { trackProductEvent } from "@/lib/productAnalytics";
@@ -206,6 +207,7 @@ const colors = ["#ffd166", "#0ea5e9", "#10b981", "#f43f5e", "#6366f1"];
 const localUserKey = "canvas-room-user";
 const localThemeKey = "roomboard-theme";
 const realtimeEndpoint = process.env.NEXT_PUBLIC_ROOMBOARD_REALTIME_URL?.trim() ?? "";
+
 const allowServerRealtimeFallback =
   process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ROOMBOARD_ALLOW_SERVER_FALLBACK === "true";
 const shouldStartWithRealtimeFallback = !realtimeEndpoint && allowServerRealtimeFallback;
@@ -978,6 +980,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
   } | null>(null);
   const [showMainMenu, setShowMainMenu] = useState(false);
   const [theme, setTheme] = useState<RoomTheme>("dark");
+  const [canvasFpsMode, setCanvasFpsMode] = useState<CanvasFpsMode>("vsync");
 
   // Connection Mode States
   const [isConnecting, setIsConnecting] = useState(false);
@@ -1657,6 +1660,16 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
   }, []);
 
+  const toggleCanvasFpsMode = useCallback(() => {
+    setCanvasFpsMode((currentMode) => {
+      const nextMode: CanvasFpsMode = currentMode === "vsync" ? "half" : "vsync";
+
+      saveStoredCanvasFpsMode(nextMode);
+
+      return nextMode;
+    });
+  }, []);
+
   useEffect(() => {
     isConnectingRef.current = isConnecting;
     connectFromIdRef.current = connectFromId;
@@ -1688,6 +1701,10 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     document.documentElement.dataset.theme = theme;
     saveStoredTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    setCanvasFpsMode(getStoredCanvasFpsMode());
+  }, []);
 
   useEffect(() => {
     hadSyncOutageRef.current = false;
@@ -1947,6 +1964,7 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
     setZoomPercent,
     syncGridTransform,
     syncTextResolution,
+    fpsMode: canvasFpsMode,
   });
 
   useEffect(() => {
@@ -2890,6 +2908,8 @@ export function CanvasRoom({ roomId, roomName }: CanvasRoomProps) {
         requestToggleRoomAccess={requestToggleRoomAccess}
         togglePublicSnapshot={togglePublicSnapshot}
         toggleTheme={toggleTheme}
+        canvasFpsMode={canvasFpsMode}
+        toggleCanvasFpsMode={toggleCanvasFpsMode}
         roomCanvasSupportMailto={roomCanvasSupportMailto}
         getRoleLabel={getRoleLabel}
         getInitials={getInitials}
