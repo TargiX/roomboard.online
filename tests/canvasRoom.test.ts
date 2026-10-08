@@ -691,7 +691,7 @@ describe("buildRoomRecap", () => {
 
   it("appends the revision history to the exported decision record", () => {
     const recap = buildRoomRecap({
-      ...makeSnapshot([makeItem({ status: "approved", title: "Decision" })]),
+      ...makeSnapshot([makeItem({ status: "approved", title: "Decision" })], [makeActivity({ createdAt: updatedAt - 500 })]),
       history: [
         { version: 1, updatedAt: updatedAt - 2000, itemCount: 1, connectionCount: 0, commentCount: 0 },
         { version: 2, updatedAt: updatedAt - 1000, itemCount: 1, connectionCount: 1, commentCount: 1 },
@@ -702,6 +702,7 @@ describe("buildRoomRecap", () => {
     assert.match(recap.markdown, /- v1 - .* - 1 cards, 0 links, 0 comments/);
     assert.match(recap.markdown, /- v2 - .* - 1 cards, 1 links, 1 comments/);
     // History comes last so the decision brief stays the closing section.
+    assert.match(recap.markdown, /## Recent activity/);
     assert.ok(recap.markdown.indexOf("## Revision history") > recap.markdown.indexOf("## Recent activity"));
   });
 
