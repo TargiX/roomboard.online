@@ -1714,6 +1714,7 @@ export function buildRoomDecisionBrief(items: RoomItem[]): RoomDecisionBrief {
 export function buildRoomRecap(
   snapshot: Pick<RoomSnapshot, "activities" | "connections" | "items" | "room"> & {
     agents?: RoomAgentPublic[];
+    history?: RoomHistoryEntry[];
     messages?: RoomMessage[];
   },
 ): RoomRecap {
@@ -1825,6 +1826,20 @@ export function buildRoomRecap(
     for (const activity of recentActivities) {
       markdownLines.push(`- ${activity.message} - ${activity.actor}, ${new Date(activity.createdAt).toISOString()}`);
     }
+    markdownLines.push("");
+  }
+
+  // The decision record should be self-contained: include the committed
+  // revision trail so an exported recap proves how the board evolved without
+  // needing live access to the room document.
+  if ((snapshot.history ?? []).length > 0) {
+    markdownLines.push("## Revision history");
+    for (const entry of snapshot.history ?? []) {
+      markdownLines.push(
+        `- v${entry.version} - ${new Date(entry.updatedAt).toISOString()} - ${entry.itemCount} cards, ${entry.connectionCount} links, ${entry.commentCount} comments`,
+      );
+    }
+    markdownLines.push("");
   }
 
   return {
