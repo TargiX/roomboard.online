@@ -4,7 +4,7 @@ import {
   readRoomTokenFromUrl,
   resolveRoomInviteToken,
   stripRoomTokensFromUrl,
-} from "./roomLinks";
+} from "./roomLinks.ts";
 
 /**
  * Browser-local room credential storage. Owner and invite tokens are keyed by
