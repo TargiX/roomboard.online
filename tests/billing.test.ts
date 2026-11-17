@@ -120,17 +120,16 @@ describe("getAppOrigin", () => {
 });
 
 describe("getStripeClient", () => {
-  it("returns null without a configured secret key", () => {
+  it("memoizes null from a missing key and ignores later env changes", () => {
+    // First call in this process resolves and memoizes the client, so the
+    // missing-key null must be pinned inside this test to keep it
+    // independent of test selection and order.
     setEnv("STRIPE_SECRET_KEY", undefined);
-    // First call in this process resolves the memoized client.
     assert.equal(getStripeClient(), null);
-  });
 
-  it("memoizes the first resolution and ignores later env changes", () => {
     setEnv("STRIPE_SECRET_KEY", "sk_test_late_binding");
 
-    // The singleton was already pinned to null by the missing key above;
-    // setting the env afterwards must not conjure a new client.
+    // Setting the env afterwards must not conjure a new client.
     assert.equal(getStripeClient(), null);
   });
 });
